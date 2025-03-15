@@ -561,6 +561,33 @@ export default function AdminDashboard() {
           </div>
         </div>
 
+        {/* Violations Section */}
+        {examDetails.exam_violations && examDetails.exam_violations.length > 0 && (
+          <div className="bg-gray-50 p-6 rounded-lg">
+            <h3 className="text-xl font-semibold mb-4 text-gray-800">Violations</h3>
+            <div className="space-y-4">
+              {examDetails.exam_violations.map((violation) => (
+                <div key={violation.id} className="bg-white p-4 rounded-lg border border-red-200">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-medium text-red-800">{violation.reason}</h4>
+                      <p className="text-sm text-gray-700 mt-1">
+                        Risk Score Impact: +{violation.risk_score}
+                      </p>
+                    </div>
+                    <span className="text-sm text-gray-700">{formatDate(violation.created_at)}</span>
+                  </div>
+                  {violation.details && (
+                    <pre className="mt-2 text-sm bg-red-50 p-3 rounded overflow-x-auto text-gray-900 font-mono">
+                      {JSON.stringify(violation.details, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* AI Detection Results */}
         {examDetails.ai_detection_results && Object.keys(examDetails.ai_detection_results).length > 0 && (
           <div className="bg-gray-50 p-6 rounded-lg">
@@ -580,7 +607,7 @@ export default function AdminDashboard() {
                   </div>
                   <div className="space-y-2">
                     <div>
-                      <p className="text-sm text-gray-600">Confidence Score</p>
+                      <p className="text-sm text-gray-700">Confidence Score</p>
                       <div className="flex items-center">
                         <div className="flex-1 bg-gray-200 rounded-full h-2">
                           <div
@@ -590,40 +617,13 @@ export default function AdminDashboard() {
                             style={{ width: `${result.confidenceScore}%` }}
                           ></div>
                         </div>
-                        <span className="ml-2 text-sm font-medium text-gray-700">
+                        <span className="ml-2 text-sm font-medium text-gray-900">
                           {result.confidenceScore}%
                         </span>
                       </div>
                     </div>
-                    <p className="text-sm text-gray-600">{result.explanation}</p>
+                    <p className="text-sm text-gray-700">{result.explanation}</p>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Violations Section */}
-        {examDetails.exam_violations && examDetails.exam_violations.length > 0 && (
-          <div className="bg-gray-50 p-6 rounded-lg">
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">Violations</h3>
-            <div className="space-y-4">
-              {examDetails.exam_violations.map((violation) => (
-                <div key={violation.id} className="bg-white p-4 rounded-lg border border-red-200">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="font-medium text-red-800">{violation.reason}</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Risk Score Impact: +{violation.risk_score}
-                      </p>
-                    </div>
-                    <span className="text-sm text-gray-500">{formatDate(violation.created_at)}</span>
-                  </div>
-                  {violation.details && (
-                    <pre className="mt-2 text-sm bg-red-50 p-3 rounded overflow-x-auto">
-                      {JSON.stringify(violation.details, null, 2)}
-                    </pre>
-                  )}
                 </div>
               ))}
             </div>
