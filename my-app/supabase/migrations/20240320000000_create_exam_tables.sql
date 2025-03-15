@@ -26,15 +26,35 @@ END $$;
 -- Drop existing policies if they exist
 DROP POLICY IF EXISTS "Users can view their own profile" ON profiles;
 DROP POLICY IF EXISTS "Users can update their own profile" ON profiles;
+DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
 
 -- Create policies for profiles
 CREATE POLICY "Users can view their own profile"
     ON profiles FOR SELECT
-    USING (auth.uid() = id);
+    USING (
+        auth.uid() = id OR
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
 
 CREATE POLICY "Users can update their own profile"
     ON profiles FOR UPDATE
     USING (auth.uid() = id);
+
+-- Create admin policy for profiles
+CREATE POLICY "Admins can view all profiles"
+    ON profiles FOR ALL
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE profiles.id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+    );
 
 -- Update exam_sessions table if it exists
 DO $$ 
@@ -64,11 +84,24 @@ BEGIN
     -- Add RLS policies
     ALTER TABLE exam_sessions ENABLE ROW LEVEL SECURITY;
 
+    -- Drop existing policies if they exist
+    DROP POLICY IF EXISTS "Users can view their own exam sessions" ON exam_sessions;
+    DROP POLICY IF EXISTS "Users can insert their own exam sessions" ON exam_sessions;
+    DROP POLICY IF EXISTS "Users can update their own exam sessions" ON exam_sessions;
+    DROP POLICY IF EXISTS "Admins can view all exam sessions" ON exam_sessions;
+
     -- Allow users to view their own exam sessions
     CREATE POLICY "Users can view their own exam sessions"
         ON exam_sessions FOR SELECT
         TO authenticated
-        USING (auth.uid() = user_id);
+        USING (
+            auth.uid() = user_id OR
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE profiles.id = auth.uid()
+                AND profiles.role = 'admin'
+            )
+        );
 
     -- Allow users to insert their own exam sessions
     CREATE POLICY "Users can insert their own exam sessions"
@@ -81,6 +114,18 @@ BEGIN
         ON exam_sessions FOR UPDATE
         TO authenticated
         USING (auth.uid() = user_id);
+
+    -- Allow admins to view all exam sessions
+    CREATE POLICY "Admins can view all exam sessions"
+        ON exam_sessions FOR ALL
+        TO authenticated
+        USING (
+            EXISTS (
+                SELECT 1 FROM profiles
+                WHERE profiles.id = auth.uid()
+                AND profiles.role = 'admin'
+            )
+        );
 END $$;
 
 -- Add trigger to automatically update updated_at timestamp

@@ -1,0 +1,1 @@
+INSERT INTO "public"."typing_speeds" ("id", "user_id", "exam_session_id", "prompt_wpm", "exam_wpm", "created_at") VALUES ('e959b64e-3fc9-4cb4-802d-65e18035222c', '93019ef2-9c2d-48c5-8ed1-990ba5f2517f', '78781676-457e-4649-beac-a1011321f8ac', '27', null, '2025-03-15 19:45:52.445+00');
