@@ -63,26 +63,37 @@ export default function ExamResults() {
           return;
         }
 
+        console.log("Completed exams:", completedExams);
         setAllExams(completedExams || []);
 
-        // Get exam_id from URL or use the latest exam
+        // Get exam_id from URL
         const urlParams = new URLSearchParams(window.location.search);
         const targetExamId = urlParams.get("exam_id");
         
+        console.log("Target exam ID from URL:", targetExamId);
+        
         let currentSession;
         if (targetExamId) {
+          // Find the exam with matching exam_id
           currentSession = completedExams?.find(exam => exam.exam_id === targetExamId);
-        } else {
-          currentSession = completedExams?.[0];
+          console.log("Found session for target exam:", currentSession);
+        }
+        
+        // If no specific exam found or no target exam_id, use the latest exam
+        if (!currentSession && completedExams?.length > 0) {
+          currentSession = completedExams[0];
+          console.log("Using latest exam session:", currentSession);
         }
 
         if (!currentSession) {
           console.log("No completed exams found for user:", user.id);
           setExamSession(null);
+          setViolations([]);
+          setBehaviorLogs([]);
           return;
         }
 
-        console.log("Current session details:", currentSession);
+        console.log("Setting current session:", currentSession);
         setExamSession(currentSession);
 
         // Fetch violations for this session
@@ -93,7 +104,7 @@ export default function ExamResults() {
           .order("created_at", { ascending: true });
 
         if (violationsError) {
-          console.error("Error fetching violations:", violationsError.message);
+          console.error("Error fetching violations:", violationsError);
         } else {
           console.log("Violations data:", violationsData);
           setViolations(violationsData || []);
@@ -107,7 +118,7 @@ export default function ExamResults() {
           .order("created_at", { ascending: true });
 
         if (behaviorError) {
-          console.error("Error fetching behavior logs:", behaviorError.message);
+          console.error("Error fetching behavior logs:", behaviorError);
         } else {
           console.log("Behavior logs:", behaviorData);
           setBehaviorLogs(behaviorData || []);
@@ -224,23 +235,37 @@ export default function ExamResults() {
             </div>
 
             {/* Previous Exams Selector */}
-            <div className="mb-8">
-              <label className="block text-blue-50/90 mb-2">View Other Exams:</label>
-              <select
-                className="w-full bg-white/5 text-white border border-white/10 rounded-xl p-3"
-                onChange={(e) => {
-                  if (e.target.value) {
-                    router.push(`/candidate/results?exam_id=${e.target.value}`);
-                  }
-                }}
-                value={examSession.exam_id}
-              >
-                {allExams?.map((exam) => (
-                  <option key={exam.id} value={exam.exam_id}>
-                    {exam.exam_id} - {new Date(exam.created_at).toLocaleDateString()}
-                  </option>
-                ))}
-              </select>
+            <div className="mb-8 bg-white/5 rounded-xl p-6">
+              <label className="block text-lg font-semibold text-white mb-3">View Other Exams</label>
+              <div className="relative">
+                <select
+                  className="w-full bg-white/5 text-white border border-white/20 rounded-xl p-4 pr-10 appearance-none hover:bg-white/10 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent backdrop-blur-lg font-medium"
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const newUrl = `/candidate/results?exam_id=${e.target.value}`;
+                      router.push(newUrl);
+                      window.location.href = newUrl;
+                    }
+                  }}
+                  value={examSession.exam_id || ""}
+                >
+                  {allExams?.map((exam) => (
+                    <option 
+                      key={exam.id} 
+                      value={exam.exam_id}
+                      className="bg-gray-800 text-white py-2"
+                    >
+                      {exam.exam_id} - {new Date(exam.created_at).toLocaleDateString()}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-white/70">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-blue-50/70 text-sm mt-2">Select an exam from the list to view its results</p>
             </div>
 
             {/* Exam Summary */}
