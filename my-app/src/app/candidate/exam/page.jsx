@@ -393,108 +393,57 @@ function isValid(s) {
     try {
       let newRiskLevel = "LOW";
       
-      // Update risk level based on warning count
-      if (warningCount >= 6) {
+      // Get current session data for risk score
+      const { data: session, error: sessionError } = await supabase
+        .from('exam_sessions')
+        .select('risk_score')
+        .eq('id', examSessionId)
+        .single();
+
+      if (sessionError) {
+        console.error('Error fetching session:', sessionError);
+        return;
+      }
+
+      const currentScore = session?.risk_score || 0;
+      
+      // Update risk level based on score thresholds
+      if (currentScore >= 80) {
         newRiskLevel = "HIGH";
-      } else if (warningCount >= 3) {
+      } else if (currentScore >= 51) {
         newRiskLevel = "MEDIUM";
       }
 
       if (newRiskLevel !== riskLevel) {
         setRiskLevel(newRiskLevel);
         
-        // Apply restrictions based on risk level
-        if (newRiskLevel === "MEDIUM") {
+        if (newRiskLevel === "HIGH") {
+          // Terminate exam immediately for high risk
+          await handleHighRiskTermination("Risk score exceeded threshold");
+        } else if (newRiskLevel === "MEDIUM") {
+          // Force fullscreen for medium risk
           try {
             await requestFullScreen();
+            setWarningMessage("⚠️ Warning: Risk level MEDIUM. Fullscreen mode enforced.");
+            setShowWarning(true);
           } catch (error) {
-            console.log('Failed to enter fullscreen:', error);
-            setWarningMessage("⚠️ Warning: Please click 'Return to Fullscreen' button to continue the exam.");
+            console.error('Failed to enter fullscreen:', error);
+            setWarningMessage("⚠️ Warning: Please allow fullscreen mode to continue the exam.");
             setShowWarning(true);
           }
-          setWarningMessage("⚠️ Warning: Risk level increased to MEDIUM. Full restrictions applied.");
-          setShowWarning(true);
-        } else if (newRiskLevel === "LOW") {
-          try {
-            if (isInFullScreen()) {
-              await exitFullScreen();
-            }
-          } catch (error) {
-            console.log('Failed to exit fullscreen:', error);
-          }
-          setWarningMessage("Risk level returned to LOW. Restrictions removed.");
-          setShowWarning(true);
-        } else if (newRiskLevel === "HIGH") {
-          // Terminate exam for HIGH risk level
-          setWarningMessage("⚠️ Critical: Risk level HIGH. Exam will be terminated.");
-          setShowWarning(true);
-          
-          // Verify exam session exists before updating
-          const { data: sessionCheck, error: checkError } = await supabase
-            .from("exam_sessions")
-            .select("id")
-            .eq("id", examSessionId)
-            .single();
-
-          if (checkError) {
-            console.error('Error checking exam session:', checkError.message);
-            return;
-          }
-
-          if (!sessionCheck) {
-            console.error('Exam session not found');
-            return;
-          }
-
-          // Update exam session as terminated
-          const { error: updateError } = await supabase
-            .from("exam_sessions")
-            .update({ 
-              terminated: true,
-              completed: true,
-              risk_score: 100, // Maximum risk score for terminated exam
-              updated_at: new Date().toISOString()
-            })
-            .eq("id", examSessionId)
-            .select();
-
-          if (updateError) {
-            console.error('Error updating exam session for termination:', updateError.message);
-            return;
-          }
-
-          // Record termination details in violations table instead
-          const { error: violationError } = await supabase
-            .from('exam_violations')
-            .insert([{
-              exam_session_id: examSessionId,
-              user_id: user.id,
-              reason: "Exam terminated due to high risk level - 6 or more warnings",
-              risk_score: 100,
-              details: { 
-                warningCount, 
-                riskLevel: newRiskLevel,
-                terminationTime: new Date().toISOString()
-              },
-              created_at: new Date().toISOString()
-            }]);
-
-          if (violationError) {
-            console.error('Error recording termination violation:', violationError.message);
-          }
-
-          // Redirect to results page after a short delay
-          setTimeout(() => {
-            router.push("/candidate/results");
-          }, 3000);
         }
       }
     } catch (error) {
-      console.error('Error in updateRiskLevel:', error.message);
-      if (error.details) {
-        console.error('Error details:', error.details);
-      }
+      console.error('Error in updateRiskLevel:', error);
     }
+  };
+
+  // Add copy-paste prevention function
+  const preventCopyPaste = (e) => {
+    e.preventDefault();
+    setWarningMessage("⚠️ Warning: Copy and paste are not allowed during the exam.");
+    setShowWarning(true);
+    setCopyPasteAttempts(prev => prev + 1);
   };
 
   // Behavior monitoring effect
@@ -585,15 +534,56 @@ function isValid(s) {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === "hidden") {
         setTabSwitches(prev => prev + 1);
-        if (riskLevel === "MEDIUM") {
-          setWarningMessage("⚠️ Warning: Please return to the exam window. Fullscreen mode is required.");
-          setShowWarning(true);
+        
+        // Record violation for tab switching
+        const { error: violationError } = await supabase
+          .from('exam_violations')
+          .insert([{
+            exam_session_id: examSessionId,
+            user_id: user.id,
+            reason: "Tab switching detected",
+            risk_score: 10, // Add 10 points for tab switching
+            details: {
+              timestamp: new Date().toISOString(),
+              tabSwitchCount: tabSwitches + 1
+            },
+            created_at: new Date().toISOString()
+          }]);
+
+        if (violationError) {
+          console.error('Error recording tab switch violation:', violationError);
         }
-        await updateWarningCount(
-          "⚠️ Warning: Tab switching detected. This may be considered as malpractice.",
-          "Tab switch detected"
-        );
-        await assessBehavior("Tab switch detected");
+
+        // Update exam session risk score
+        const { data: session, error: sessionError } = await supabase
+          .from('exam_sessions')
+          .select('risk_score')
+          .eq('id', examSessionId)
+          .single();
+
+        if (!sessionError && session) {
+          const newRiskScore = Math.min(100, (session.risk_score || 0) + 10);
+          
+          await supabase
+            .from('exam_sessions')
+            .update({ 
+              risk_score: newRiskScore,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', examSessionId);
+
+          // Check if new risk score triggers medium or high risk level
+          if (newRiskScore >= 80) {
+            // Terminate exam for high risk
+            await handleHighRiskTermination("Tab switching violation");
+          } else if (newRiskScore >= 51) {
+            // Force fullscreen for medium risk
+            await requestFullScreen();
+          }
+        }
+
+        setWarningMessage("⚠️ Warning: Tab switching detected. This will increase your risk score.");
+        setShowWarning(true);
       }
     };
 
@@ -621,7 +611,7 @@ function isValid(s) {
 
     // Periodic behavior assessment
     assessmentInterval = setInterval(async () => {
-      await assessBehavior("Periodic assessment");
+      await assessBehavior("periodic_check");
     }, 10000); // Every 10 seconds
 
     // Add event listeners
@@ -646,7 +636,7 @@ function isValid(s) {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       clearInterval(assessmentInterval);
     };
-  }, [examStarted, examSessionId, riskLevel]);
+  }, [examStarted, examSessionId, riskLevel, tabSwitches]);
 
   const updateWarningCount = async (message, trigger) => {
     try {
@@ -745,20 +735,72 @@ function isValid(s) {
     }
   };
 
-  const assessBehavior = async (trigger) => {
-    if (!examSessionId || !user?.id) {
-      console.error("Missing exam session ID or user ID");
-      return;
-    }
+  // Add new state for tracking last violation time
+  const [lastViolationTime, setLastViolationTime] = useState(null);
 
-    const behaviors = {
-      mouseMovements,
-      keystrokes,
-      tabSwitches,
-      mouseLeaveCount,
-      copyPasteAttempts,
-      timeInactive: Date.now() - lastActivity
-    };
+  // Add cooldown check function
+  const checkRiskCooldown = async () => {
+    try {
+      if (!examSessionId) return;
+
+      // Get current session data
+      const { data: session, error: sessionError } = await supabase
+        .from('exam_sessions')
+        .select('risk_score')
+        .eq('id', examSessionId)
+        .single();
+
+      if (sessionError || !session) {
+        console.error('Error fetching session for cooldown:', sessionError);
+        return;
+      }
+
+      const currentTime = Date.now();
+      const fiveMinutesAgo = currentTime - (5 * 60 * 1000);
+
+      // Check for violations in the last 5 minutes
+      const { data: recentViolations, error: violationsError } = await supabase
+        .from('exam_violations')
+        .select('created_at')
+        .eq('exam_session_id', examSessionId)
+        .gte('created_at', new Date(fiveMinutesAgo).toISOString());
+
+      if (violationsError) {
+        console.error('Error checking recent violations:', violationsError);
+        return;
+      }
+
+      // If no violations in last 5 minutes, reduce score by 10
+      if (!recentViolations || recentViolations.length === 0) {
+        const newScore = Math.max(0, session.risk_score - 10);
+        
+        const { error: updateError } = await supabase
+          .from('exam_sessions')
+          .update({ risk_score: newScore })
+          .eq('id', examSessionId);
+
+        if (updateError) {
+          console.error('Error updating risk score for cooldown:', updateError);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('Error in checkRiskCooldown:', error);
+    }
+  };
+
+  // Set up cooldown interval
+  useEffect(() => {
+    if (!examStarted || !examSessionId) return;
+
+    const cooldownInterval = setInterval(checkRiskCooldown, 60000); // Check every minute
+
+    return () => clearInterval(cooldownInterval);
+  }, [examStarted, examSessionId]);
+
+  // Update the assessBehavior function
+  const assessBehavior = async (behaviors, trigger = 'periodic_check') => {
+    if (!examSessionId) return;
 
     try {
       // Calculate risk contributions
@@ -771,21 +813,16 @@ function isValid(s) {
 
       const totalRiskContribution = Object.values(riskContributions).reduce((sum, val) => sum + val, 0);
 
-      // Show warning based on trigger
-      if (trigger === "Periodic assessment" && (Date.now() - lastActivity) > 30000) {
-        await updateWarningCount(
-          "⚠️ Warning: Prolonged inactivity detected. Please remain active during the exam.",
-          trigger
-        );
-      }
+      // Record behavior log with proper behavior_type
+      const behaviorType = typeof behaviors === 'string' ? behaviors : trigger;
+      const behaviorData = typeof behaviors === 'object' ? behaviors : riskContributions;
 
-      // Record behavior log
       const { error: behaviorError } = await supabase
         .from('behavior_logs')
         .insert({
           exam_session_id: examSessionId,
-          behavior_type: trigger,
-          behavior_data: behaviors,
+          behavior_type: behaviorType,
+          behavior_data: behaviorData,
           risk_contribution: totalRiskContribution,
           created_at: new Date().toISOString()
         });
@@ -796,15 +833,32 @@ function isValid(s) {
 
       // Record violation if risk is high
       if (totalRiskContribution > 0.5) {
-        const riskScore = Math.round(totalRiskContribution * 100);
+        // Get current session data
+        const { data: session, error: sessionError } = await supabase
+          .from('exam_sessions')
+          .select('risk_score, warnings')
+          .eq('id', examSessionId)
+          .single();
+
+        if (sessionError) {
+          console.error('Error fetching current session:', sessionError);
+          return;
+        }
+
+        // Add 10 points to the risk score and increase warning count
+        const newRiskScore = Math.min(100, (session.risk_score || 0) + 10);
+        const newWarningCount = (session.warnings || 0) + 1;
         
         // Create violation data object
         const violationData = {
           exam_session_id: examSessionId,
           user_id: user.id,
-          reason: warningMessage || trigger,
-          risk_score: riskScore,
-          details: behaviors,
+          reason: typeof behaviors === 'string' ? behaviors : 'Suspicious behavior detected',
+          risk_score: 10,
+          details: {
+            ...behaviorData,
+            warningCount: newWarningCount
+          },
           created_at: new Date().toISOString()
         };
 
@@ -815,10 +869,55 @@ function isValid(s) {
 
         if (violationError) {
           console.error('Error recording violation:', violationError.message);
-          console.error('Violation data:', violationData);
+          return;
         }
-      }
 
+        // Update exam session with new risk score and warning count
+        const { error: updateError } = await supabase
+          .from('exam_sessions')
+          .update({ 
+            risk_score: newRiskScore,
+            warnings: newWarningCount,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', examSessionId);
+
+        if (updateError) {
+          console.error('Error updating risk score and warnings:', updateError);
+          return;
+        }
+
+        setWarningCount(newWarningCount);
+        setLastViolationTime(Date.now());
+
+        // Handle warning count thresholds
+        if (newWarningCount >= 8) {
+          // Terminate exam if warnings >= 8
+          await handleHighRiskTermination("Excessive warnings - automatic termination");
+        } else if (newWarningCount >= 5) {
+          // Force fullscreen if warnings >= 5
+          try {
+            await requestFullScreen();
+            setWarningMessage("⚠️ Warning: Due to multiple violations, fullscreen mode is now enforced.");
+            setShowWarning(true);
+          } catch (error) {
+            console.error('Failed to enter fullscreen:', error);
+            setWarningMessage("⚠️ Warning: Please allow fullscreen mode to continue the exam.");
+            setShowWarning(true);
+          }
+        }
+
+        // Show appropriate warning message
+        let warningMsg = `⚠️ Warning ${newWarningCount}/8: Suspicious behavior detected`;
+        if (newWarningCount >= 5) {
+          warningMsg += " - Fullscreen mode enforced";
+        }
+        if (newWarningCount === 7) {
+          warningMsg += " - FINAL WARNING before termination";
+        }
+        setWarningMessage(warningMsg);
+        setShowWarning(true);
+      }
     } catch (error) {
       console.error('Error in assessBehavior:', error.message);
       if (error.details) {
@@ -827,7 +926,7 @@ function isValid(s) {
     }
   };
 
-  // Update startExam function to remove audio setup
+  // Update startExam function to add initial copy-paste restrictions
   const startExam = async () => {
     try {
       console.log("Starting exam for user:", user.id);
@@ -837,6 +936,11 @@ function isValid(s) {
         console.error("No user ID found");
         throw new Error("User not authenticated");
       }
+
+      // Add copy-paste restrictions
+      document.addEventListener('copy', preventCopyPaste);
+      document.addEventListener('paste', preventCopyPaste);
+      document.addEventListener('cut', preventCopyPaste);
 
       // Get count of user's previous exams to create unique exam ID
       const { data: previousExams, error: countError } = await supabase
@@ -892,7 +996,7 @@ function isValid(s) {
     }
   };
 
-  // Update the exam end function to remove audio cleanup
+  // Update the exam end function to remove copy-paste restrictions
   const endExam = async () => {
     if (!examSessionId) {
       console.error("No exam session ID found");
@@ -900,6 +1004,11 @@ function isValid(s) {
     }
 
     try {
+      // Remove copy-paste restrictions
+      document.removeEventListener('copy', preventCopyPaste);
+      document.removeEventListener('paste', preventCopyPaste);
+      document.removeEventListener('cut', preventCopyPaste);
+
       console.log("Starting exam end process for session:", examSessionId);
       
       // First verify the exam session exists and belongs to the user
@@ -1090,6 +1199,57 @@ function isValid(s) {
       if (window.confirm("Are you sure you want to submit your exam?")) {
         await submitExam();
       }
+    }
+  };
+
+  // Add the handleHighRiskTermination function
+  const handleHighRiskTermination = async (reason) => {
+    try {
+      // Update exam session as terminated
+      const { error: terminationError } = await supabase
+        .from('exam_sessions')
+        .update({
+          terminated: true,
+          completed: true,
+          risk_score: 100,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', examSessionId);
+
+      if (terminationError) {
+        console.error('Error terminating exam session:', terminationError);
+        return;
+      }
+
+      // Record termination violation
+      const { error: violationError } = await supabase
+        .from('exam_violations')
+        .insert([{
+          exam_session_id: examSessionId,
+          user_id: user.id,
+          reason: `Exam terminated - ${reason}`,
+          risk_score: 100,
+          details: {
+            terminationTime: new Date().toISOString(),
+            terminationReason: reason
+          },
+          created_at: new Date().toISOString()
+        }]);
+
+      if (violationError) {
+        console.error('Error recording termination violation:', violationError);
+      }
+
+      // Show termination message and redirect
+      setWarningMessage("⚠️ Critical: Your exam has been terminated due to high risk behavior.");
+      setShowWarning(true);
+      
+      // Redirect to results page after a short delay
+      setTimeout(() => {
+        router.push("/candidate/results");
+      }, 3000);
+    } catch (error) {
+      console.error('Error in handleHighRiskTermination:', error);
     }
   };
 

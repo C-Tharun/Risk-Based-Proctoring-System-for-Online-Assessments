@@ -364,10 +364,97 @@ export default function AdminDashboard() {
   };
 
   const getRiskLevel = (score) => {
-    if (score >= 50) return { level: "High", color: "text-red-500" };
-    if (score >= 25) return { level: "Medium", color: "text-yellow-500" };
+    if (score >= 80) return { level: "High", color: "text-red-500" };
+    if (score >= 51) return { level: "Medium", color: "text-yellow-500" };
     return { level: "Low", color: "text-green-500" };
   };
+
+  // Add cooldown check function
+  const checkRiskCooldown = async (examId, currentScore) => {
+    try {
+      // Get violations from the last 5 minutes
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      
+      const { data: recentViolations, error } = await supabase
+        .from('exam_violations')
+        .select('created_at')
+        .eq('exam_session_id', examId)
+        .gte('created_at', fiveMinutesAgo)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error checking violations:', error);
+        return currentScore;
+      }
+
+      // If no violations in last 5 minutes, reduce score by 10
+      if (!recentViolations || recentViolations.length === 0) {
+        const newScore = Math.max(0, currentScore - 10); // Don't go below 0
+        
+        // Update exam session with new score
+        const { error: updateError } = await supabase
+          .from('exam_sessions')
+          .update({ risk_score: newScore })
+          .eq('id', examId);
+
+        if (updateError) {
+          console.error('Error updating risk score:', updateError);
+          return currentScore;
+        }
+
+        return newScore;
+      }
+
+      return currentScore;
+    } catch (error) {
+      console.error('Error in checkRiskCooldown:', error);
+      return currentScore;
+    }
+  };
+
+  // Add violation handler function
+  const handleViolation = async (examId, currentScore) => {
+    try {
+      const newScore = currentScore + 10;
+      
+      // Update exam session with new score
+      const { error: updateError } = await supabase
+        .from('exam_sessions')
+        .update({ risk_score: newScore })
+        .eq('id', examId);
+
+      if (updateError) {
+        console.error('Error updating risk score:', updateError);
+        return currentScore;
+      }
+
+      return newScore;
+    } catch (error) {
+      console.error('Error in handleViolation:', error);
+      return currentScore;
+    }
+  };
+
+  // Set up cooldown interval for active sessions
+  useEffect(() => {
+    if (!activeSessions.length) return;
+
+    const cooldownInterval = setInterval(async () => {
+      for (const session of activeSessions) {
+        if (!session.completed) {
+          const newScore = await checkRiskCooldown(session.id, session.risk_score);
+          if (newScore !== session.risk_score) {
+            // Update local state if score changed
+            setActiveSessions(prev => prev.map(s => 
+              s.id === session.id ? { ...s, risk_score: newScore } : s
+            ));
+          }
+        }
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(cooldownInterval);
+  }, [activeSessions]);
 
   const fetchExamDetails = async (examId) => {
     try {
@@ -587,38 +674,28 @@ export default function AdminDashboard() {
           </div>
 
           <div className="bg-gray-50 p-6 rounded-lg">
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">Risk Assessment</h3>
+            <h3 className="text-xl font-semibold mb-4 text-gray-800">Session Statistics</h3>
             <div className="space-y-3">
               <div>
-                <p className="text-sm text-gray-600">Risk Score</p>
-                <div className="flex items-center">
-                  <div className="flex-1 bg-gray-200 rounded-full h-4">
-                    <div
-                      className={`h-4 rounded-full ${
-                        getRiskLevel(exam.risk_score).level === "High"
-                          ? "bg-red-500"
-                          : getRiskLevel(exam.risk_score).level === "Medium"
-                          ? "bg-yellow-500"
-                          : "bg-green-500"
-                      }`}
-                      style={{ width: `${exam.risk_score}%` }}
-                    ></div>
-                  </div>
-                  <span className={`ml-3 font-medium ${getRiskLevel(exam.risk_score).color}`}>
-                    {exam.risk_score}%
-                  </span>
-                </div>
-                <p className="mt-1 text-sm font-medium text-gray-600">
-                  Risk Level: {getRiskLevel(exam.risk_score).level}
+                <p className="text-sm text-gray-600">Total Duration</p>
+                <p className="font-medium text-gray-900">{Math.round(exam.duration / 60)} minutes</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Typing Speed</p>
+                <p className="font-medium text-gray-900">{exam.typing_speed_wpm || exam.user_details?.typingSpeed || 0} WPM</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Status</p>
+                <p className="font-medium text-gray-900">
+                  {exam.completed ? (
+                    <span className="text-green-600">Completed</span>
+                  ) : (
+                    <span className="text-blue-600">In Progress</span>
+                  )}
+                  {exam.terminated && (
+                    <span className="ml-2 text-red-600">(Terminated)</span>
+                  )}
                 </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Warnings</p>
-                <p className="font-medium text-gray-900">{exam.warnings} warnings issued</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Monitoring Level</p>
-                <p className="font-medium text-gray-900">{exam.monitoring_level}</p>
               </div>
             </div>
           </div>
@@ -793,12 +870,6 @@ export default function AdminDashboard() {
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
             <div className="flex gap-4">
-              <button
-                onClick={() => router.push("/")}
-                className="bg-white/10 text-white px-4 py-2 rounded-lg hover:bg-white/20 transition-colors"
-              >
-                Back to Home
-              </button>
               <button
                 onClick={handleLogout}
                 className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2"
