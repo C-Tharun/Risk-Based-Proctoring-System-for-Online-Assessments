@@ -1,0 +1,25 @@
+-- Add typing speed and user details columns to exam_sessions table
+ALTER TABLE exam_sessions
+ADD COLUMN typing_speed_wpm INTEGER,
+ADD COLUMN user_details JSONB;
+
+-- Drop existing policies
+DROP POLICY IF EXISTS "Users can view their own exam sessions" ON exam_sessions;
+DROP POLICY IF EXISTS "Users can update their own exam sessions" ON exam_sessions;
+
+-- Create new policies with correct syntax
+CREATE POLICY "Users can view their own exam sessions" ON exam_sessions
+    USING (auth.uid() = user_id OR 
+           EXISTS (
+             SELECT 1 FROM profiles 
+             WHERE profiles.id = auth.uid() 
+             AND profiles.role = 'admin'
+           ));
+
+CREATE POLICY "Users can update their own exam sessions" ON exam_sessions
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+-- Add comment for documentation
+COMMENT ON COLUMN exam_sessions.typing_speed_wpm IS 'Typing speed in words per minute from the pre-exam typing test';
+COMMENT ON COLUMN exam_sessions.user_details IS 'JSON object containing user details collected during the typing test'; 

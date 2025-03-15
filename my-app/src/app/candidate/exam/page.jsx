@@ -157,6 +157,158 @@ function isValid(s) {
   const [showAIWarning, setShowAIWarning] = useState(false);
   const [aiWarningMessage, setAiWarningMessage] = useState("");
 
+  const [showTypingTest, setShowTypingTest] = useState(true);
+  const [typingTestCompleted, setTypingTestCompleted] = useState(false);
+  const [typingSpeed, setTypingSpeed] = useState(0);
+  const [userDetails, setUserDetails] = useState({
+    fullName: '',
+    education: '',
+    typingTestText: ''
+  });
+  const typingStartTime = useRef(null);
+  const typingEndTime = useRef(null);
+
+  const sampleText = `Please type this paragraph exactly as shown. This typing test will help us understand your typing speed and accuracy. We use this information to ensure the integrity of the examination process. Type naturally as you would during the exam.`;
+
+  const calculateTypingSpeed = () => {
+    const timeInMinutes = (typingEndTime.current - typingStartTime.current) / 60000; // Convert to minutes
+    const wordsTyped = userDetails.typingTestText.trim().split(/\s+/).length;
+    const wpm = Math.round(wordsTyped / timeInMinutes);
+    return wpm;
+  };
+
+  const handleTypingStart = () => {
+    if (!typingStartTime.current) {
+      typingStartTime.current = Date.now();
+    }
+  };
+
+  const handleTypingTestSubmit = async () => {
+    try {
+      typingEndTime.current = Date.now();
+      const wpm = calculateTypingSpeed();
+      setTypingSpeed(wpm);
+
+      // Make sure we have an exam session ID
+      if (!examSessionId) {
+        throw new Error('No exam session ID found');
+      }
+
+      // First check if the exam session exists
+      const { data: existingSession, error: checkError } = await supabase
+        .from('exam_sessions')
+        .select('id')
+        .eq('id', examSessionId)
+        .single();
+
+      if (checkError || !existingSession) {
+        throw new Error('Could not find exam session');
+      }
+
+      // Then update the session with typing speed and user details
+      const { error: updateError } = await supabase
+        .from('exam_sessions')
+        .update({ 
+          typing_speed_wpm: wpm,
+          user_details: {
+            fullName: userDetails.fullName,
+            education: userDetails.education,
+            typingTestCompleted: true,
+            typingSpeed: wpm,
+            typingTestText: userDetails.typingTestText,
+            testStartTime: typingStartTime.current,
+            testEndTime: typingEndTime.current
+          }
+        })
+        .eq('id', examSessionId);
+
+      if (updateError) {
+        throw new Error(`Failed to update exam session: ${updateError.message}`);
+      }
+
+      // Log the typing test completion
+      const { error: logError } = await supabase
+        .from('behavior_logs')
+        .insert({
+          exam_session_id: examSessionId,
+          behavior_type: 'typing_test_completed',
+          behavior_data: {
+            wpm,
+            textLength: userDetails.typingTestText.length,
+            duration: (typingEndTime.current - typingStartTime.current) / 1000,
+            timestamp: new Date().toISOString()
+          },
+          risk_contribution: 0,
+          created_at: new Date().toISOString()
+        });
+
+      if (logError) {
+        console.error('Error logging typing test completion:', logError.message);
+      }
+
+      setTypingTestCompleted(true);
+      setShowTypingTest(false);
+    } catch (error) {
+      console.error('Error in typing test submission:', error.message);
+      alert(`Failed to save typing test results: ${error.message}. Please try again or contact support if the issue persists.`);
+    }
+  };
+
+  // Add state for typing test session
+  const [typingTestStarted, setTypingTestStarted] = useState(false);
+
+  // Function to start typing test and create exam session
+  const startTypingTest = async () => {
+    try {
+      if (!user?.id) {
+        throw new Error("User not authenticated");
+      }
+
+      // Get count of user's previous exams to create unique exam ID
+      const { data: previousExams, error: countError } = await supabase
+        .from("exam_sessions")
+        .select("id")
+        .eq("user_id", user.id);
+
+      if (countError) {
+        throw new Error("Failed to create exam session");
+      }
+
+      const examNumber = (previousExams?.length || 0) + 1;
+      const examId = `EXAM${examNumber}_${user.id}`;
+
+      const examData = {
+        user_id: user.id,
+        exam_id: examId,
+        risk_score: 0,
+        warnings: 0,
+        duration: 7200,
+        completed: false,
+        terminated: false,
+        monitoring_level: 'STANDARD',
+        created_at: new Date().toISOString()
+      };
+
+      // Create a new exam session
+      const { data: session, error: sessionError } = await supabase
+        .from("exam_sessions")
+        .insert(examData)
+        .select()
+        .single();
+
+      if (sessionError) {
+        throw new Error(sessionError.message || "Failed to create exam session");
+      }
+
+      setExamSessionId(session.id);
+      setTypingTestStarted(true);
+      typingStartTime.current = Date.now(); // Start timing when session is created
+    } catch (error) {
+      console.error("Error starting typing test:", error);
+      alert(`Failed to start typing test: ${error.message}. Please try again or contact support if the issue persists.`);
+    }
+  };
+
   useEffect(() => {
     const checkAuth = async () => {
       const { data, error } = await supabase.auth.getSession();
@@ -876,33 +1028,6 @@ function isValid(s) {
         console.warn("Failed to save AI detection results, but exam completion will continue");
       }
 
-      // Record AI detection violation if confidence is high
-      if (avgAiScore > 70) {
-        const { error: violationError } = await supabase
-          .from('exam_violations')
-          .insert([{
-            exam_session_id: examSessionId,
-            user_id: user.id,
-            reason: "High likelihood of AI-generated content detected",
-            risk_score: aiRiskScore,
-            details: {
-              ai_detection_results: aiResults,
-              average_confidence: avgAiScore
-            },
-            created_at: new Date().toISOString()
-          }]);
-
-        if (violationError) {
-          console.error('Error recording AI detection violation:', violationError);
-          console.error('Violation error details:', {
-            message: violationError.message,
-            code: violationError.code,
-            details: violationError.details,
-            hint: violationError.hint
-          });
-        }
-      }
-
       console.log("Successfully completed exam session");
       
       // Redirect to results page with exam ID
@@ -989,26 +1114,105 @@ function isValid(s) {
       <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
         <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:60px_60px]" />
         <div className="relative min-h-screen px-6 py-12">
-          <motion.div
-            className="max-w-4xl mx-auto text-center"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <h1 className="text-4xl font-black text-white mb-6">Ready to Begin?</h1>
-            <p className="text-blue-50/90 mb-8">
-              The exam will begin when you click the button below. Make sure you are in a quiet environment
-              .
-            </p>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={startExam}
-              className="bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300"
+          {!typingTestStarted ? (
+            <motion.div
+              className="max-w-4xl mx-auto text-center"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
             >
-              Begin Exam
-            </motion.button>
-          </motion.div>
+              <h1 className="text-4xl font-black text-white mb-6">Welcome to the Exam</h1>
+              <p className="text-blue-50/90 mb-8">
+                Before starting the exam, you'll need to complete a quick typing test to help us understand your typing patterns.
+              </p>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={startTypingTest}
+                className="bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300"
+              >
+                Start Typing Test
+              </motion.button>
+            </motion.div>
+          ) : showTypingTest ? (
+            <motion.div
+              className="max-w-4xl mx-auto"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+            >
+              <h1 className="text-4xl font-black text-white mb-6 text-center">Typing Test</h1>
+              <p className="text-blue-50/90 mb-8 text-center">
+                Please complete this short typing test. Type naturally - you don't need to match the sample text exactly.
+              </p>
+
+              <div className="space-y-6 bg-white/10 backdrop-blur-lg rounded-xl p-8">
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Full Name</label>
+                  <input
+                    type="text"
+                    value={userDetails.fullName}
+                    onChange={(e) => setUserDetails(prev => ({ ...prev, fullName: e.target.value }))}
+                    className="w-full bg-white/5 text-white border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter your full name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Education</label>
+                  <input
+                    type="text"
+                    value={userDetails.education}
+                    onChange={(e) => setUserDetails(prev => ({ ...prev, education: e.target.value }))}
+                    className="w-full bg-white/5 text-white border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter your education details"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-white text-sm font-medium mb-2">Typing Test</label>
+                  <div className="bg-white/5 rounded-lg p-4 mb-4">
+                    <p className="text-white/90 font-mono">{sampleText}</p>
+                  </div>
+                  <textarea
+                    value={userDetails.typingTestText}
+                    onChange={(e) => setUserDetails(prev => ({ ...prev, typingTestText: e.target.value }))}
+                    onKeyDown={handleTypingStart}
+                    className="w-full h-32 bg-white/5 text-white border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    placeholder="Start typing anything here to demonstrate your typing speed..."
+                  />
+                </div>
+
+                <button
+                  onClick={handleTypingTestSubmit}
+                  disabled={!userDetails.fullName || !userDetails.education || userDetails.typingTestText.length < 20}
+                  className="w-full bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Submit Typing Test
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              className="max-w-4xl mx-auto text-center"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+            >
+              <h1 className="text-4xl font-black text-white mb-6">Ready to Begin?</h1>
+              <p className="text-blue-50/90 mb-8">
+                The exam will begin when you click the button below. Please ensure you have read all instructions carefully.
+              </p>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={startExam}
+                className="bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300"
+              >
+                Begin Exam
+              </motion.button>
+            </motion.div>
+          )}
         </div>
       </div>
     );

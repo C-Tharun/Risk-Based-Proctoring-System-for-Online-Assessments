@@ -130,17 +130,16 @@ export default function AdminDashboard() {
     const fetchCompletedSessions = async () => {
       try {
         console.log('Fetching completed sessions...');
+        
         // First get the completed exam sessions
         const { data: sessions, error: sessionError } = await supabase
-          .from("exam_sessions")
-          .select("*")
-          .eq("completed", true)
-          .order("created_at", { ascending: false });
-
-        console.log('Completed sessions response:', { sessions, error: sessionError });
+          .from('exam_sessions')
+          .select('*')
+          .eq('completed', true)
+          .order('created_at', { ascending: false });
 
         if (sessionError) {
-          console.error("Error fetching completed sessions:", sessionError.message);
+          console.error('Error fetching completed sessions:', sessionError);
           setCompletedSessions([]);
           return;
         }
@@ -149,14 +148,12 @@ export default function AdminDashboard() {
         if (sessions && sessions.length > 0) {
           const userIds = [...new Set(sessions.map(session => session.user_id))];
           const { data: profiles, error: profileError } = await supabase
-            .from("profiles")
-            .select("id, email")
-            .in("id", userIds);
-
-          console.log('Profiles response:', { profiles, error: profileError });
+            .from('profiles')
+            .select('id, email, role')
+            .in('id', userIds);
 
           if (profileError) {
-            console.error("Error fetching profiles:", profileError.message);
+            console.error('Error fetching profiles:', profileError);
             return;
           }
 
@@ -172,7 +169,7 @@ export default function AdminDashboard() {
           setCompletedSessions([]);
         }
       } catch (error) {
-        console.error("Error in fetchCompletedSessions:", error);
+        console.error('Error in fetchCompletedSessions:', error);
         setCompletedSessions([]);
       }
     };
@@ -376,112 +373,215 @@ export default function AdminDashboard() {
     try {
       console.log('Fetching exam details for:', examId);
       
-      // Fetch exam session with all related data
+      if (!examId) {
+        console.error('No exam ID provided');
+        return;
+      }
+
+      // First fetch the basic exam session data
       const { data: examSession, error: sessionError } = await supabase
         .from('exam_sessions')
-        .select(`
-          *,
-          exam_violations (
-            id,
-            reason,
-            risk_score,
-            details,
-            created_at,
-            timestamp
-          ),
-          behavior_logs (
-            id,
-            behavior_type,
-            behavior_data,
-            risk_contribution,
-            created_at
-          ),
-          admin_warnings (
-            id,
-            message,
-            status,
-            created_at
-          )
-        `)
+        .select('*, typing_speed_wpm, user_details')
         .eq('id', examId)
         .single();
 
       if (sessionError) {
-        console.error('Error fetching exam session:', sessionError);
+        console.error('Error fetching exam session:', sessionError.message);
         return;
       }
 
-      // Fetch user profile information with email
-      const { data: userProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, email, role, created_at')
-        .eq('id', examSession.user_id)
-        .single();
-
-      if (profileError) {
-        console.error('Error fetching user profile:', profileError);
+      if (!examSession) {
+        console.error('No exam session found with ID:', examId);
+        return;
       }
 
+      // Get the user profile data
+      const { data: profiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, email, role')
+        .eq('id', examSession.user_id);
+
+      if (profileError) {
+        console.error('Error fetching profile:', profileError.message);
+      }
+
+      // Get the first profile if exists
+      const profile = profiles && profiles.length > 0 ? profiles[0] : null;
+
+      // Then fetch violations and logs
+      const [violationsResponse, behaviorLogsResponse, warningsResponse] = await Promise.all([
+        // Fetch violations
+        supabase
+          .from('exam_violations')
+          .select('*')
+          .eq('exam_session_id', examId)
+          .order('created_at', { ascending: true }),
+
+        // Fetch behavior logs
+        supabase
+          .from('behavior_logs')
+          .select('*')
+          .eq('exam_session_id', examId)
+          .order('created_at', { ascending: true }),
+
+        // Fetch admin warnings
+        supabase
+          .from('admin_warnings')
+          .select('*')
+          .eq('exam_session_id', examId)
+          .order('created_at', { ascending: true })
+      ]);
+
+      // Check for errors in related data fetching
+      if (violationsResponse.error) {
+        console.error('Error fetching violations:', violationsResponse.error.message);
+      }
+      if (behaviorLogsResponse.error) {
+        console.error('Error fetching behavior logs:', behaviorLogsResponse.error.message);
+      }
+      if (warningsResponse.error) {
+        console.error('Error fetching warnings:', warningsResponse.error.message);
+      }
+
+      // Combine all the data
       const examWithDetails = {
         ...examSession,
-        exam_violations: examSession.exam_violations || [],
-        behavior_logs: examSession.behavior_logs || [],
-        admin_warnings: examSession.admin_warnings || [],
-        user_profile: userProfile || null
+        profiles: profile,
+        exam_violations: violationsResponse.data || [],
+        behavior_logs: behaviorLogsResponse.data || [],
+        admin_warnings: warningsResponse.data || []
       };
 
       console.log('Processed exam details:', examWithDetails);
       setExamDetails(examWithDetails);
       setSelectedExam(examWithDetails);
     } catch (error) {
-      console.error('Error in fetchExamDetails:', error);
+      console.error('Error in fetchExamDetails:', error.message);
+      if (error.details) {
+        console.error('Error details:', error.details);
+      }
     }
   };
 
-  const renderExamDetails = () => {
-    if (!examDetails) return null;
-
-    const riskLevel = getRiskLevel(examDetails.risk_score);
-    const duration = Math.floor(examDetails.duration / 60);
+  const renderExamDetails = (exam) => {
+    const typingSpeed = exam.typing_speed_wpm || exam.user_details?.typingSpeed || 0;
+    const typingTestText = exam.user_details?.typingTestText || '';
+    const testDuration = exam.user_details?.testStartTime && exam.user_details?.testEndTime
+      ? Math.round((exam.user_details.testEndTime - exam.user_details.testStartTime) / 1000)
+      : 0;
 
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="bg-white rounded-lg shadow-lg p-6 mb-6 space-y-8"
-      >
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+          <div className="p-6">
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">Exam Details</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm font-medium text-gray-500">Candidate</p>
+                <p className="mt-1 text-sm text-gray-900">{exam.profiles?.email || "Unknown"}</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500">Exam ID</p>
+                <p className="mt-1 text-sm text-gray-900">{exam.exam_id}</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500">Duration</p>
+                <p className="mt-1 text-sm text-gray-900">{Math.round(exam.duration / 60)} minutes</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500">Risk Score</p>
+                <p className="mt-1 text-sm text-gray-900">{exam.risk_score || 0}%</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500">Typing Speed</p>
+                <p className="mt-1 text-sm text-gray-900">{typingSpeed} WPM</p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500">Status</p>
+                <p className="mt-1 text-sm text-gray-900">
+                  {exam.completed ? (
+                    <span className="text-green-600">Completed</span>
+                  ) : (
+                    <span className="text-blue-600">In Progress</span>
+                  )}
+                  {exam.terminated && (
+                    <span className="ml-2 text-red-600">(Terminated)</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {exam.user_details && (
+              <div className="mt-6">
+                <h4 className="text-lg font-medium text-gray-900 mb-3">User Details</h4>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">Full Name</p>
+                      <p className="mt-1 text-sm text-gray-900">{exam.user_details.fullName || "Not provided"}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">Education</p>
+                      <p className="mt-1 text-sm text-gray-900">{exam.user_details.education || "Not provided"}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-sm font-medium text-gray-500">Typing Test Details</p>
+                      <div className="mt-1 text-sm text-gray-900 space-y-2">
+                        <p>Speed: {typingSpeed} WPM</p>
+                        <p>Text Length: {typingTestText.length} characters</p>
+                        <p>Test Duration: {testDuration} seconds</p>
+                        {typingTestText && (
+                          <div>
+                            <p className="font-medium mt-2 mb-1">Sample Text:</p>
+                            <p className="bg-gray-100 p-2 rounded text-gray-700 font-mono text-sm">
+                              {typingTestText}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Summary Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-gray-50 p-6 rounded-lg">
             <h3 className="text-xl font-semibold mb-4 text-gray-800">Exam Summary</h3>
             <div className="space-y-3">
               <div>
-                <p className="text-sm text-gray-600">Exam ID</p>
-                <p className="font-medium text-gray-900">{examDetails.exam_id}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Candidate Email</p>
-                <p className="font-medium text-gray-900">
-                  {examDetails.user_profile?.email || 'Unknown'}
+                <p className="text-sm text-gray-600">Risk Score</p>
+                <div className="flex items-center">
+                  <div className="flex-1 bg-gray-200 rounded-full h-4">
+                    <div
+                      className={`h-4 rounded-full ${
+                        getRiskLevel(exam.risk_score).level === "High"
+                          ? "bg-red-500"
+                          : getRiskLevel(exam.risk_score).level === "Medium"
+                          ? "bg-yellow-500"
+                          : "bg-green-500"
+                      }`}
+                      style={{ width: `${exam.risk_score}%` }}
+                    ></div>
+                  </div>
+                  <span className={`ml-3 font-medium ${getRiskLevel(exam.risk_score).color}`}>
+                    {exam.risk_score}%
+                  </span>
+                </div>
+                <p className="mt-1 text-sm font-medium text-gray-600">
+                  Risk Level: {getRiskLevel(exam.risk_score).level}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Duration</p>
-                <p className="font-medium text-gray-900">{duration} minutes</p>
+                <p className="text-sm text-gray-600">Warnings</p>
+                <p className="font-medium text-gray-900">{exam.warnings} warnings issued</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Status</p>
-                <p className="font-medium text-gray-900">
-                  {examDetails.completed ? (
-                    <span className="text-green-600">Completed</span>
-                  ) : (
-                    <span className="text-blue-600">In Progress</span>
-                  )}
-                  {examDetails.terminated && (
-                    <span className="ml-2 text-red-600">(Terminated)</span>
-                  )}
-                </p>
+                <p className="text-sm text-gray-600">Monitoring Level</p>
+                <p className="font-medium text-gray-900">{exam.monitoring_level}</p>
               </div>
             </div>
           </div>
@@ -495,30 +595,30 @@ export default function AdminDashboard() {
                   <div className="flex-1 bg-gray-200 rounded-full h-4">
                     <div
                       className={`h-4 rounded-full ${
-                        riskLevel.level === "High"
+                        getRiskLevel(exam.risk_score).level === "High"
                           ? "bg-red-500"
-                          : riskLevel.level === "Medium"
+                          : getRiskLevel(exam.risk_score).level === "Medium"
                           ? "bg-yellow-500"
                           : "bg-green-500"
                       }`}
-                      style={{ width: `${examDetails.risk_score}%` }}
+                      style={{ width: `${exam.risk_score}%` }}
                     ></div>
                   </div>
-                  <span className={`ml-3 font-medium ${riskLevel.color}`}>
-                    {examDetails.risk_score}%
+                  <span className={`ml-3 font-medium ${getRiskLevel(exam.risk_score).color}`}>
+                    {exam.risk_score}%
                   </span>
                 </div>
                 <p className="mt-1 text-sm font-medium text-gray-600">
-                  Risk Level: {riskLevel.level}
+                  Risk Level: {getRiskLevel(exam.risk_score).level}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Warnings</p>
-                <p className="font-medium text-gray-900">{examDetails.warnings} warnings issued</p>
+                <p className="font-medium text-gray-900">{exam.warnings} warnings issued</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Monitoring Level</p>
-                <p className="font-medium text-gray-900">{examDetails.monitoring_level}</p>
+                <p className="font-medium text-gray-900">{exam.monitoring_level}</p>
               </div>
             </div>
           </div>
@@ -530,22 +630,22 @@ export default function AdminDashboard() {
           <div className="space-y-4">
             <div className="flex items-center">
               <div className="flex-shrink-0 w-12 text-sm text-gray-700">Start</div>
-              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(examDetails.created_at)}</div>
+              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(exam.created_at)}</div>
               <div className="ml-4 text-sm text-gray-700">Exam session started</div>
             </div>
-            {examDetails.exam_violations?.map((violation, index) => (
+            {exam.exam_violations?.map((violation, index) => (
               <div key={violation.id} className="flex items-center">
                 <div className="flex-shrink-0 w-12 text-sm text-gray-700">
-                  +{Math.floor((new Date(violation.created_at) - new Date(examDetails.created_at)) / 60000)}m
+                  +{Math.floor((new Date(violation.created_at) - new Date(exam.created_at)) / 60000)}m
                 </div>
                 <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(violation.created_at)}</div>
                 <div className="ml-4 text-sm text-red-600">{violation.reason}</div>
               </div>
             ))}
-            {examDetails.behavior_logs?.map((log, index) => (
+            {exam.behavior_logs?.map((log, index) => (
               <div key={log.id} className="flex items-center">
                 <div className="flex-shrink-0 w-12 text-sm text-gray-700">
-                  +{Math.floor((new Date(log.created_at) - new Date(examDetails.created_at)) / 60000)}m
+                  +{Math.floor((new Date(log.created_at) - new Date(exam.created_at)) / 60000)}m
                 </div>
                 <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(log.created_at)}</div>
                 <div className="ml-4 text-sm text-blue-600">
@@ -555,18 +655,18 @@ export default function AdminDashboard() {
             ))}
             <div className="flex items-center">
               <div className="flex-shrink-0 w-12 text-sm text-gray-700">End</div>
-              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(examDetails.updated_at)}</div>
+              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(exam.updated_at)}</div>
               <div className="ml-4 text-sm text-gray-700">Exam session ended</div>
             </div>
           </div>
         </div>
 
         {/* Violations Section */}
-        {examDetails.exam_violations && examDetails.exam_violations.length > 0 && (
+        {exam.exam_violations && exam.exam_violations.length > 0 && (
           <div className="bg-gray-50 p-6 rounded-lg">
             <h3 className="text-xl font-semibold mb-4 text-gray-800">Violations</h3>
             <div className="space-y-4">
-              {examDetails.exam_violations.map((violation) => (
+              {exam.exam_violations.map((violation) => (
                 <div key={violation.id} className="bg-white p-4 rounded-lg border border-red-200">
                   <div className="flex justify-between items-start">
                     <div>
@@ -589,11 +689,11 @@ export default function AdminDashboard() {
         )}
 
         {/* AI Detection Results */}
-        {examDetails.ai_detection_results && Object.keys(examDetails.ai_detection_results).length > 0 && (
+        {exam.ai_detection_results && Object.keys(exam.ai_detection_results).length > 0 && (
           <div className="bg-gray-50 p-6 rounded-lg">
             <h3 className="text-xl font-semibold mb-4 text-gray-800">AI Detection Results</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(examDetails.ai_detection_results).map(([key, result]) => (
+              {Object.entries(exam.ai_detection_results).map(([key, result]) => (
                 <div key={key} className="bg-white p-4 rounded-lg border border-gray-200">
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="font-medium text-gray-900">Analysis #{key}</h4>
@@ -631,11 +731,11 @@ export default function AdminDashboard() {
         )}
 
         {/* Behavior Logs Section */}
-        {examDetails.behavior_logs && examDetails.behavior_logs.length > 0 && (
+        {exam.behavior_logs && exam.behavior_logs.length > 0 && (
           <div className="bg-gray-50 p-6 rounded-lg">
             <h3 className="text-xl font-semibold mb-4 text-gray-800">Behavior Analysis</h3>
             <div className="space-y-4">
-              {examDetails.behavior_logs.map((log) => (
+              {exam.behavior_logs.map((log) => (
                 <div key={log.id} className="bg-white p-4 rounded-lg border border-blue-200">
                   <div className="flex justify-between items-start">
                     <div>
@@ -656,7 +756,7 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
-      </motion.div>
+      </div>
     );
   };
 
@@ -721,6 +821,7 @@ export default function AdminDashboard() {
                     <th className="py-3 px-4">Exam ID</th>
                     <th className="py-3 px-4">Candidate</th>
                     <th className="py-3 px-4">Risk Score</th>
+                    <th className="py-3 px-4">Typing Speed</th>
                     <th className="py-3 px-4">Duration</th>
                     <th className="py-3 px-4">Completed</th>
                     <th className="py-3 px-4">Actions</th>
@@ -733,6 +834,9 @@ export default function AdminDashboard() {
                       <td className="py-3 px-4">{session.profiles?.email || 'Unknown'}</td>
                       <td className={`py-3 px-4 ${getRiskLevel(session.risk_score).color}`}>
                         {session.risk_score}% ({getRiskLevel(session.risk_score).level})
+                      </td>
+                      <td className="py-3 px-4">
+                        {session.typing_speed_wpm ? `${session.typing_speed_wpm} WPM` : (session.user_details?.typingSpeed ? `${session.user_details.typingSpeed} WPM` : 'N/A')}
                       </td>
                       <td className="py-3 px-4">{Math.floor(session.duration / 60)} minutes</td>
                       <td className="py-3 px-4">{formatDate(session.updated_at)}</td>
@@ -748,7 +852,7 @@ export default function AdminDashboard() {
                   ))}
                   {completedSessions.length === 0 && (
                     <tr>
-                      <td colSpan="6" className="py-4 text-center text-white/70">
+                      <td colSpan="7" className="py-4 text-center text-white/70">
                         No completed sessions
                       </td>
                     </tr>
@@ -776,7 +880,7 @@ export default function AdminDashboard() {
                   </button>
                 </div>
                 <div className="p-6">
-                  {renderExamDetails()}
+                  {renderExamDetails(examDetails)}
                 </div>
               </div>
             </div>
