@@ -36,25 +36,121 @@ export default function ExamPage() {
   const questions = [
     {
       id: 1,
-      question: "What is the capital of France?",
+      question: "What is the time complexity of binary search?",
       type: "mcq",
-      options: ["London", "Paris", "Berlin", "Madrid"],
-      correctAnswer: "Paris"
+      options: ["O(n)", "O(log n)", "O(n log n)", "O(n²)"],
+      correctAnswer: "O(log n)"
     },
     {
       id: 2,
-      question: "What is 2 + 2?",
-      type: "text",
-      answer: "4"
+      question: "Which data structure follows the Last In First Out (LIFO) principle?",
+      type: "mcq",
+      options: ["Queue", "Stack", "Linked List", "Binary Tree"],
+      correctAnswer: "Stack"
     },
     {
       id: 3,
-      question: "Which planet is known as the Red Planet?",
-      type: "mcq",
-      options: ["Venus", "Mars", "Jupiter", "Saturn"],
-      correctAnswer: "Mars"
+      question: `Two Sum Problem
+
+Given an array of integers nums and an integer target, return indices of the two numbers in nums such that they add up to target.
+
+You may assume that each input would have exactly one solution, and you may not use the same element twice.
+
+You can return the answer in any order.
+
+Example 1:
+Input: nums = [2,7,11,15], target = 9
+Output: [0,1]
+Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].
+
+Example 2:
+Input: nums = [3,2,4], target = 6
+Output: [1,2]
+Explanation: Because nums[1] + nums[2] == 6, we return [1, 2].
+
+Constraints:
+• 2 <= nums.length <= 104
+• -109 <= nums[i] <= 109
+• -109 <= target <= 109
+• Only one valid answer exists
+
+Follow-up: Can you come up with an algorithm that is less than O(n²) time complexity?`,
+      type: "coding",
+      startingCode: `/**
+ * @param {number[]} nums
+ * @param {number} target
+ * @return {number[]}
+ */
+function twoSum(nums, target) {
+    // Write your solution here
+    
+}`,
+      testCases: [
+        { input: [[2,7,11,15], 9], expectedOutput: [0,1], explanation: "nums[0] + nums[1] = 2 + 7 = 9" },
+        { input: [[3,2,4], 6], expectedOutput: [1,2], explanation: "nums[1] + nums[2] = 2 + 4 = 6" },
+        { input: [[3,3], 6], expectedOutput: [0,1], explanation: "nums[0] + nums[1] = 3 + 3 = 6" }
+      ]
+    },
+    {
+      id: 4,
+      question: `Valid Parentheses
+
+Given a string s containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid.
+
+An input string is valid if:
+1. Open brackets must be closed by the same type of brackets.
+2. Open brackets must be closed in the correct order.
+3. Every close bracket has a corresponding open bracket of the same type.
+
+Example 1:
+Input: s = "()"
+Output: true
+Explanation: Single pair of valid parentheses.
+
+Example 2:
+Input: s = "()[]{}"
+Output: true
+Explanation: Each opening bracket is closed by the same type.
+
+Example 3:
+Input: s = "(]"
+Output: false
+Explanation: The close bracket ']' cannot match with open bracket '('.
+
+Constraints:
+• 1 <= s.length <= 104
+• s consists of parentheses only '()[]{}'
+
+Note: Empty string is considered valid.`,
+      type: "coding",
+      startingCode: `/**
+ * @param {string} s
+ * @return {boolean}
+ */
+function isValid(s) {
+    // Write your solution here
+    
+}`,
+      testCases: [
+        { input: ["()"], expectedOutput: true, explanation: "Simple valid pair of parentheses" },
+        { input: ["()[]{}"], expectedOutput: true, explanation: "Multiple valid pairs" },
+        { input: ["(]"], expectedOutput: false, explanation: "Mismatched brackets" },
+        { input: ["([)]"], expectedOutput: false, explanation: "Incorrectly ordered closing brackets" },
+        { input: ["{[]}"], expectedOutput: true, explanation: "Nested brackets closed in correct order" }
+      ]
     }
   ];
+
+  // Add state for code editors
+  const [codeAnswers, setCodeAnswers] = useState({});
+
+  // Function to handle code change
+  const handleCodeChange = (questionId, newCode) => {
+    setCodeAnswers(prev => ({
+      ...prev,
+      [questionId]: newCode
+    }));
+  };
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -802,6 +898,17 @@ export default function ExamPage() {
     }
   };
 
+  // Add code submission handler
+  const handleCodeSubmit = async () => {
+    if (currentQuestion < questions.length - 1) {
+      setCurrentQuestion(prev => prev + 1);
+    } else {
+      if (window.confirm("Are you sure you want to submit your exam?")) {
+        await submitExam();
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
@@ -850,69 +957,49 @@ export default function ExamPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
-      <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:60px_60px]" />
-      <div className="relative min-h-screen px-6 py-12">
-        {/* Header */}
-        <div className="max-w-7xl mx-auto mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-white">Exam in Progress</h1>
-              <p className="text-blue-50/90">Question {currentQuestion + 1} of {questions.length}</p>
-              <p className="text-yellow-400 mt-1">Warnings: {warningCount}</p>
-              <p className={`mt-1 ${
-                riskLevel === "LOW" ? "text-green-400" :
-                riskLevel === "MEDIUM" ? "text-yellow-400" :
-                "text-red-400"
-              }`}>
-                Risk Level: {riskLevel}
-              </p>
-              {riskLevel === "MEDIUM" && !isInFullScreen() && (
-                <button
-                  onClick={requestFullScreen}
-                  className="mt-2 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
-                >
-                  Return to Fullscreen
-                </button>
-              )}
-            </div>
-            <div className="text-right">
-              <p className="text-white font-medium">Time Remaining</p>
-              <p className="text-2xl font-bold text-green-400">
-                {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, "0")}
-              </p>
-            </div>
+      {/* Header */}
+      <div className="px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-semibold text-white">Exam in Progress</h1>
+            <p className="text-blue-50/90">Question {currentQuestion + 1} of {questions.length}</p>
+            <p className="text-yellow-400">Warnings: {warningCount}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-white/80">Time Remaining</span>
+            <span className="text-green-400 font-mono text-xl">
+              {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, "0")}
+            </span>
           </div>
         </div>
+      </div>
 
-        {/* Warning Message */}
-        {showWarning && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50"
-          >
-            <div className="max-w-md mx-auto bg-red-500 backdrop-blur-lg rounded-xl p-6 shadow-lg">
-              <div className="flex items-center gap-3 text-white">
-                <svg className="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                <div>
-                  <p className="font-medium text-lg">{warningMessage}</p>
-                  <p className="text-sm mt-1 text-white/80">Warning count: {warningCount}</p>
-                </div>
-              </div>
+      {/* Warning Message */}
+      {showWarning && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed top-4 right-4 z-50"
+        >
+          <div className="bg-red-500 backdrop-blur-lg rounded-lg p-4 shadow-lg">
+            <div className="flex items-center gap-3 text-white">
+              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p className="text-sm font-medium">{warningMessage}</p>
             </div>
-          </motion.div>
-        )}
+          </div>
+        </motion.div>
+      )}
 
-        {/* Exam Content */}
-        <div ref={examContainerRef} className="max-w-4xl mx-auto">
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6">
-            <h2 className="text-xl font-bold text-white mb-6">
-              {questions[currentQuestion].question}
-            </h2>
-
-            {questions[currentQuestion].type === "mcq" ? (
+      {/* Exam Content */}
+      <div ref={examContainerRef} className="h-[calc(100vh-64px)] px-6">
+        <div className="h-full">
+          {questions[currentQuestion].type === "mcq" ? (
+            <div className="max-w-4xl mx-auto p-6">
+              <h2 className="text-xl font-bold text-white mb-6">
+                {questions[currentQuestion].question}
+              </h2>
               <div className="space-y-4">
                 {questions[currentQuestion].options.map((option, index) => (
                   <button
@@ -924,22 +1011,87 @@ export default function ExamPage() {
                   </button>
                 ))}
               </div>
-            ) : (
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  className="w-full p-4 bg-white/5 border border-white/10 rounded-xl text-white placeholder-blue-50/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="Type your answer here..."
-                />
-                <button
-                  className="w-full bg-green-500 text-white rounded-xl py-4 font-medium hover:bg-green-600 transition-colors duration-300"
-                  onClick={handleNextQuestion}
-                >
-                  {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
-                </button>
+            </div>
+          ) : questions[currentQuestion].type === "coding" ? (
+            <div className="flex h-full gap-6">
+              {/* Left side - Question Details */}
+              <div className="w-[45%] overflow-hidden rounded-xl bg-[#1e1e1e]/50">
+                <div className="h-full overflow-y-auto">
+                  <div className="p-6">
+                    <h2 className="text-xl font-bold text-white mb-6">
+                      Question {currentQuestion + 1}
+                    </h2>
+                    <div className="prose prose-invert max-w-none">
+                      <h3 className="text-lg font-semibold text-white mb-4">
+                        {questions[currentQuestion].question.split('\n')[0]}
+                      </h3>
+                      <div className="text-white/90 whitespace-pre-wrap font-mono text-sm leading-relaxed">
+                        {questions[currentQuestion].question.split('\n').slice(1).join('\n')}
+                      </div>
+                    </div>
+                    <div className="mt-8">
+                      <h4 className="text-white font-medium mb-4">Example Test Cases:</h4>
+                      {questions[currentQuestion].testCases.map((testCase, index) => (
+                        <div key={index} className="mb-4 last:mb-0 bg-white/5 rounded-lg p-4">
+                          <div className="text-sm text-white/90 space-y-1">
+                            <p className="font-medium text-white">Test Case {index + 1}:</p>
+                            <p>Input: {JSON.stringify(testCase.input)}</p>
+                            <p>Expected Output: {JSON.stringify(testCase.expectedOutput)}</p>
+                            {testCase.explanation && (
+                              <p className="text-blue-300">Explanation: {testCase.explanation}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Right side - Code Editor */}
+              <div className="w-[55%] flex flex-col bg-[#1e1e1e] rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                  <div className="text-white/80">Solution</div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className="px-4 py-1.5 text-sm font-medium text-white/90 hover:text-white bg-white/5 rounded-md hover:bg-white/10 transition-colors"
+                      onClick={() => {
+                        // Reset code to starting code
+                        handleCodeChange(questions[currentQuestion].id, questions[currentQuestion].startingCode);
+                      }}
+                    >
+                      Reset
+                    </button>
+                    <button
+                      className="px-4 py-1.5 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600 transition-colors"
+                      onClick={() => {
+                        // Add run code functionality here
+                        console.log("Running code...");
+                      }}
+                    >
+                      Run Code
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <textarea
+                    value={codeAnswers[questions[currentQuestion].id] || questions[currentQuestion].startingCode}
+                    onChange={(e) => handleCodeChange(questions[currentQuestion].id, e.target.value)}
+                    className="w-full h-full bg-transparent text-white font-mono text-sm leading-relaxed focus:outline-none resize-none p-6"
+                    spellCheck="false"
+                  />
+                </div>
+                <div className="p-4 border-t border-white/10">
+                  <button
+                    className="w-full bg-green-500 text-white rounded-md py-2.5 font-medium hover:bg-green-600 transition-colors"
+                    onClick={handleCodeSubmit}
+                  >
+                    {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
