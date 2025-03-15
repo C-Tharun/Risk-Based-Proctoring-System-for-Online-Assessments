@@ -28,6 +28,8 @@ export default function ExamPage() {
 
   const examContainerRef = useRef(null);
   const warningTimeoutRef = useRef(null);
+  const lastWarningTimeRef = useRef(Date.now());
+  const MIN_WARNING_INTERVAL = 3000; // Minimum 3 seconds between warnings
 
   // Sample questions (replace with actual questions from database)
   const questions = [
@@ -105,30 +107,57 @@ export default function ExamPage() {
       setLastActivity(Date.now());
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== "visible") {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === "hidden") {
+        // Increment tab switches count
         setTabSwitches(prev => prev + 1);
-        assessBehavior("Tab switch detected");
+        
+        // Show warning
+        await updateWarningCount(
+          "⚠️ Warning: Tab switching detected. This may be considered as malpractice.",
+          "Tab switch detected"
+        );
+        
+        // Assess behavior
+        await assessBehavior("Tab switch detected");
       }
     };
 
-    const handleMouseLeave = (e) => {
+    const handleMouseLeave = async (e) => {
       if (e.clientY <= 0) {
         setMouseLeaveCount(prev => prev + 1);
-        assessBehavior("Mouse left exam window");
+        
+        await updateWarningCount(
+          "⚠️ Warning: Mouse left exam window. Please keep your mouse within the exam window.",
+          "Mouse left exam window"
+        );
+        
+        await assessBehavior("Mouse left exam window");
       }
     };
 
-    const handleCopy = (e) => {
+    const handleCopy = async (e) => {
       e.preventDefault();
       setCopyPasteAttempts(prev => prev + 1);
-      assessBehavior("Copy attempt detected");
+      
+      await updateWarningCount(
+        "⚠️ Warning: Copy attempt detected. This is not allowed during the exam.",
+        "Copy attempt detected"
+      );
+      
+      await assessBehavior("Copy attempt detected");
     };
 
-    const handlePaste = (e) => {
+    const handlePaste = async (e) => {
       e.preventDefault();
       setCopyPasteAttempts(prev => prev + 1);
-      assessBehavior("Paste attempt detected");
+      
+      await updateWarningCount(
+        "⚠️ Warning: Paste attempt detected. This is not allowed during the exam.",
+        "Paste attempt detected"
+      );
+      
+      await assessBehavior("Paste attempt detected");
     };
 
     // Periodic behavior assessment
@@ -155,14 +184,103 @@ export default function ExamPage() {
     };
   }, [examStarted, examSessionId]);
 
-  const assessBehavior = async (trigger) => {
-    if (!examSessionId) {
-      console.error("No exam session ID found in assessBehavior");
-      return;
-    }
+  const updateWarningCount = async (message, trigger) => {
+    try {
+      // Check if enough time has passed since the last warning
+      const now = Date.now();
+      if (now - lastWarningTimeRef.current < MIN_WARNING_INTERVAL) {
+        console.log('Warning ignored - too soon after last warning');
+        return;
+      }
 
-    if (!user?.id) {
-      console.error("No user ID found in assessBehavior");
+      // Check if we have required data
+      if (!examSessionId || !user?.id) {
+        console.error('Missing exam session ID or user ID');
+        return;
+      }
+
+      // Update the last warning time
+      lastWarningTimeRef.current = now;
+
+      // First, get the current warning count from the database
+      const { data: currentSession, error: fetchError } = await supabase
+        .from("exam_sessions")
+        .select("warnings")
+        .eq("id", examSessionId)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching current warning count:', fetchError.message);
+        return;
+      }
+
+      // Calculate new warning count
+      const newWarningCount = (currentSession?.warnings || 0) + 1;
+
+      // Update local state
+      setWarningCount(newWarningCount);
+      setWarningMessage(message);
+      setShowWarning(true);
+
+      // Update database
+      const { error: updateError } = await supabase
+        .from("exam_sessions")
+        .update({ 
+          warnings: newWarningCount,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", examSessionId);
+
+      if (updateError) {
+        console.error('Error updating warning count:', updateError.message);
+        return;
+      }
+
+      // Record the warning in admin_warnings table
+      const warningData = {
+        exam_session_id: examSessionId,
+        user_id: user.id,
+        message: message || 'Warning issued',
+        status: "active",
+        created_at: new Date().toISOString()
+      };
+
+      // Only add trigger_type if it exists in the schema
+      if (trigger) {
+        try {
+          warningData.trigger_type = trigger;
+        } catch (error) {
+          console.log('trigger_type column might not exist yet:', error.message);
+        }
+      }
+
+      const { error: warningError } = await supabase
+        .from("admin_warnings")
+        .insert([warningData]);
+
+      if (warningError) {
+        console.error('Error recording warning:', warningError.message);
+        return;
+      }
+
+      // Clear any existing timeout
+      if (warningTimeoutRef.current) {
+        clearTimeout(warningTimeoutRef.current);
+      }
+
+      // Set new timeout to hide warning
+      warningTimeoutRef.current = setTimeout(() => {
+        setShowWarning(false);
+      }, 5000);
+
+    } catch (error) {
+      console.error('Error in updateWarningCount:', error.message);
+    }
+  };
+
+  const assessBehavior = async (trigger) => {
+    if (!examSessionId || !user?.id) {
+      console.error("Missing exam session ID or user ID");
       return;
     }
 
@@ -176,7 +294,7 @@ export default function ExamPage() {
     };
 
     try {
-      // Calculate risk contributions for each behavior type
+      // Calculate risk contributions
       const riskContributions = {
         tabSwitches: Math.min(1, tabSwitches / 5) * 0.3,
         mouseLeave: Math.min(1, mouseLeaveCount / 3) * 0.2,
@@ -184,65 +302,18 @@ export default function ExamPage() {
         inactivity: Math.min(1, (Date.now() - lastActivity) / 30000) * 0.2
       };
 
-      // Calculate total risk contribution
       const totalRiskContribution = Object.values(riskContributions).reduce((sum, val) => sum + val, 0);
 
-      // Generate specific warning message based on trigger
-      let warningMessage = "";
-      let shouldShowWarning = false;
-
-      if (trigger === "Tab switch detected") {
-        warningMessage = "⚠️ Warning: Tab switching detected. This may be considered as malpractice.";
-        shouldShowWarning = true;
-      } else if (trigger === "Mouse left exam window") {
-        warningMessage = "⚠️ Warning: Mouse left exam window. Please keep your mouse within the exam window.";
-        shouldShowWarning = true;
-      } else if (trigger === "Copy attempt detected" || trigger === "Paste attempt detected") {
-        warningMessage = "⚠️ Warning: Copy/Paste attempt detected. This is not allowed during the exam.";
-        shouldShowWarning = true;
-      } else if (trigger === "Periodic assessment" && (Date.now() - lastActivity) > 30000) {
-        warningMessage = "⚠️ Warning: Prolonged inactivity detected. Please remain active during the exam.";
-        shouldShowWarning = true;
+      // Show warning based on trigger
+      if (trigger === "Periodic assessment" && (Date.now() - lastActivity) > 30000) {
+        updateWarningCount(
+          "⚠️ Warning: Prolonged inactivity detected. Please remain active during the exam.",
+          trigger
+        );
       }
-
-      // Show warning popup if needed
-      if (shouldShowWarning) {
-        showWarningMessage(warningMessage);
-        
-        // Update warning count in the database
-        const { data: currentSession, error: sessionError } = await supabase
-          .from("exam_sessions")
-          .select("warnings")
-          .eq("id", examSessionId)
-          .single();
-
-        if (!sessionError && currentSession) {
-          const newWarningCount = (currentSession.warnings || 0) + 1;
-          const { error: updateError } = await supabase
-            .from("exam_sessions")
-            .update({ 
-              warnings: newWarningCount,
-              updated_at: new Date().toISOString()
-            })
-            .eq("id", examSessionId);
-
-          if (updateError) {
-            console.error('Error updating warnings count:', updateError);
-          } else {
-            console.log('Updated warnings count:', newWarningCount);
-            setWarningCount(newWarningCount);
-          }
-        }
-      }
-
-      console.log("Recording behavior log with data:", {
-        exam_session_id: examSessionId,
-        behavior_type: trigger,
-        risk_contribution: totalRiskContribution
-      });
 
       // Record behavior log
-      const { data: behaviorLog, error: behaviorError } = await supabase
+      const { error: behaviorError } = await supabase
         .from('behavior_logs')
         .insert({
           exam_session_id: examSessionId,
@@ -250,113 +321,34 @@ export default function ExamPage() {
           behavior_data: behaviors,
           risk_contribution: totalRiskContribution,
           created_at: new Date().toISOString()
-        })
-        .select()
-        .single();
+        });
 
       if (behaviorError) {
-        console.error('Error recording behavior log:', behaviorError.message);
-        console.error('Full error details:', behaviorError);
-      } else {
-        console.log('Successfully recorded behavior log:', behaviorLog);
+        console.error('Error recording behavior log:', behaviorError);
       }
 
-      // Record violation if risk is high enough
+      // Record violation if risk is high
       if (totalRiskContribution > 0.5) {
         const riskScore = Math.round(totalRiskContribution * 100);
-        console.log("Recording violation with risk score:", riskScore);
-        
-        const { data: violation, error: violationError } = await supabase
+        const { error: violationError } = await supabase
           .from('exam_violations')
           .insert({
             exam_session_id: examSessionId,
             user_id: user.id,
-            reason: warningMessage,
+            reason: warningMessage || trigger,
             risk_score: riskScore,
             details: behaviors,
             created_at: new Date().toISOString()
-          })
-          .select()
-          .single();
+          });
 
         if (violationError) {
-          console.error('Error recording violation:', violationError.message);
-          console.error('Full error details:', violationError);
-        } else {
-          console.log('Successfully recorded violation:', violation);
-        }
-      }
-
-      // Get recommended intervention
-      if (totalRiskContribution > 0.3) {
-        const intervention = {
-          type: totalRiskContribution > 0.7 ? 'FINAL_WARNING' : 'WARNING',
-          message: `Suspicious behavior detected: ${trigger}`
-        };
-
-        try {
-          const response = await interventionService.handleIntervention(
-            examSessionId,
-            intervention,
-            user.id
-          );
-
-          // Handle response actions
-          for (const action of response.actions || []) {
-            switch (action.type) {
-              case 'END_EXAM':
-                await endExam();
-                router.push('/candidate/results');
-                break;
-
-              case 'ISSUE_WARNING':
-              case 'FINAL_WARNING':
-                showWarningMessage(action.message);
-                break;
-            }
-          }
-        } catch (interventionError) {
-          console.error('Error handling intervention:', interventionError);
+          console.error('Error recording violation:', violationError);
         }
       }
 
     } catch (error) {
       console.error('Error in assessBehavior:', error);
-      console.error('Error details:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      });
     }
-  };
-
-  const showWarningMessage = (message) => {
-    setWarningMessage(message);
-    setShowWarning(true);
-    setWarningCount(prev => prev + 1);
-    
-    // Update warning count in the database
-    if (examSessionId) {
-      supabase
-        .from("exam_sessions")
-        .update({ warnings: warningCount + 1 })
-        .eq("id", examSessionId)
-        .then(({ error }) => {
-          if (error) {
-            console.error('Error updating warning count:', error);
-          } else {
-            console.log('Warning count updated:', warningCount + 1);
-          }
-        });
-    }
-
-    if (warningTimeoutRef.current) {
-      clearTimeout(warningTimeoutRef.current);
-    }
-    warningTimeoutRef.current = setTimeout(() => {
-      setShowWarning(false);
-    }, 5000);
   };
 
   const startExam = async () => {
@@ -615,7 +607,7 @@ export default function ExamPage() {
             <h1 className="text-4xl font-black text-white mb-6">Ready to Begin?</h1>
             <p className="text-blue-50/90 mb-8">
               The exam will begin when you click the button below. Make sure you are in a quiet environment
-              and your camera and microphone are working properly.
+              .
             </p>
             <motion.button
               whileHover={{ scale: 1.02 }}
