@@ -75,6 +75,7 @@ export default function AdminDashboard() {
     }
 
     // Fetch active exam sessions
+    //Hello
     const fetchActiveSessions = async () => {
       try {
         console.log('Fetching active sessions...');
