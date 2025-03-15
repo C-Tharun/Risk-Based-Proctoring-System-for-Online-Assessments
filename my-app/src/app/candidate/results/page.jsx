@@ -11,6 +11,7 @@ export default function ExamResults() {
   const [violations, setViolations] = useState([]);
   const [behaviorLogs, setBehaviorLogs] = useState([]);
   const [allExams, setAllExams] = useState([]);
+  const [aiDetectionResults, setAiDetectionResults] = useState(null);
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -62,7 +63,7 @@ export default function ExamResults() {
         // Fetch all completed exams for this user
         const { data: completedExams, error: examsError } = await supabase
           .from("exam_sessions")
-          .select("*")
+          .select("*, ai_detection_results")
           .eq("user_id", user.id)
           .eq("completed", true)
           .order("created_at", { ascending: false });
@@ -99,11 +100,13 @@ export default function ExamResults() {
           setExamSession(null);
           setViolations([]);
           setBehaviorLogs([]);
+          setAiDetectionResults(null);
           return;
         }
 
         console.log("Setting current session:", currentSession);
         setExamSession(currentSession);
+        setAiDetectionResults(currentSession.ai_detection_results || null);
 
         // Fetch violations for this session
         const { data: violationsData, error: violationsError } = await supabase
@@ -347,6 +350,47 @@ export default function ExamResults() {
                 <p className="text-blue-50/70 mt-1">Exam finished</p>
               </div>
             </div>
+
+            {/* AI Detection Results */}
+            {aiDetectionResults && Object.keys(aiDetectionResults).length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.2 }}
+                className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-8"
+              >
+                <h2 className="text-xl font-bold text-white mb-4">AI Content Analysis</h2>
+                <div className="space-y-4">
+                  {Object.entries(aiDetectionResults).map(([questionId, result]) => (
+                    <div key={questionId} className="bg-white/5 rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-medium text-white">
+                          Question {parseInt(questionId)}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-white/80">AI Confidence:</span>
+                          <span className={`text-lg font-bold ${
+                            result.confidenceScore > 70 ? 'text-red-400' :
+                            result.confidenceScore > 40 ? 'text-yellow-400' :
+                            'text-green-400'
+                          }`}>
+                            {Math.round(result.confidenceScore)}%
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-blue-50/90 text-sm">{result.explanation}</p>
+                      {result.confidenceScore > 70 && (
+                        <div className="mt-2 p-2 bg-red-500/20 rounded-lg">
+                          <p className="text-red-200 text-sm">
+                            ⚠️ High likelihood of AI-generated content detected
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* Violations List */}
             {violations.length > 0 && (

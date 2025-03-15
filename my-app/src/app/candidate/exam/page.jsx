@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { motion } from "framer-motion";
 import { riskAssessmentService } from "@/services/RiskAssessmentService";
 import { interventionService } from "@/services/InterventionService";
+import { aiDetectionService } from "@/services/AIDetectionService";
 
 export default function ExamPage() {
   const [loading, setLoading] = useState(true);
@@ -151,6 +152,10 @@ function isValid(s) {
       [questionId]: newCode
     }));
   };
+
+  const [aiDetectionResults, setAiDetectionResults] = useState({});
+  const [showAIWarning, setShowAIWarning] = useState(false);
+  const [aiWarningMessage, setAiWarningMessage] = useState("");
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -765,7 +770,26 @@ function isValid(s) {
 
       console.log("Verified exam session:", sessionCheck);
       
-      // Calculate final risk score from violations and behavior logs
+      // Analyze coding answers for AI detection
+      const aiDetectionPromises = Object.entries(codeAnswers).map(async ([questionId, code]) => {
+        const result = await aiDetectionService.detectAIContent(code);
+        return [questionId, result];
+      });
+
+      const aiResults = Object.fromEntries(await Promise.all(aiDetectionPromises));
+      setAiDetectionResults(aiResults);
+
+      // Calculate average AI confidence score
+      const scores = Object.values(aiResults).map(r => r.confidenceScore);
+      const avgAiScore = scores.length > 0 ? scores.reduce((a, b) => a + b) / scores.length : 0;
+
+      // Show warning if high AI confidence
+      if (avgAiScore > 70) {
+        setAiWarningMessage(`⚠️ Warning: High likelihood of AI-generated content detected (${Math.round(avgAiScore)}% confidence)`);
+        setShowAIWarning(true);
+      }
+
+      // Calculate final risk score including AI detection
       const [violationsResult, behaviorLogsResult] = await Promise.all([
         supabase
           .from("exam_violations")
@@ -777,11 +801,6 @@ function isValid(s) {
           .eq("exam_session_id", examSessionId)
       ]);
 
-      console.log("Fetched violations and behavior logs:", {
-        violations: violationsResult,
-        behaviorLogs: behaviorLogsResult
-      });
-
       if (violationsResult.error) {
         console.error("Error fetching violations:", violationsResult.error);
         throw new Error(`Failed to fetch violations: ${violationsResult.error.message}`);
@@ -791,68 +810,108 @@ function isValid(s) {
         throw new Error(`Failed to fetch behavior logs: ${behaviorLogsResult.error.message}`);
       }
 
-      // Calculate risk score from violations (max of all violation scores)
       const violationScore = violationsResult.data?.length > 0
         ? Math.max(...violationsResult.data.map(v => Math.round(v.risk_score)))
         : 0;
 
-      // Calculate risk score from behavior (sum of all risk contributions, scaled to 0-100)
       const behaviorScore = behaviorLogsResult.data?.length > 0
         ? Math.round(Math.min(100, behaviorLogsResult.data.reduce((sum, log) => sum + (log.risk_contribution * 100), 0)))
         : 0;
 
-      // Final risk score is the maximum of violation and behavior scores
-      const finalRiskScore = Math.round(Math.max(violationScore, behaviorScore));
-
-      console.log("Calculated risk scores:", {
-        violationScore,
-        behaviorScore,
-        finalRiskScore,
-        violations: violationsResult.data,
-        behaviorLogs: behaviorLogsResult.data
-      });
+      // Include AI detection in risk score calculation
+      const aiRiskScore = Math.round(avgAiScore);
+      const finalRiskScore = Math.round(Math.max(violationScore, behaviorScore, aiRiskScore));
 
       const updateData = {
         completed: true,
         duration: Math.round(7200 - timeRemaining),
         risk_score: finalRiskScore,
+        ai_detection_results: aiResults,
         updated_at: new Date().toISOString()
       };
 
       console.log("Updating exam session with data:", updateData);
 
-      // Update exam session with final data
-      const { data: updatedSession, error: updateError } = await supabase
+      // First try to update without the AI results to check for other issues
+      const { error: basicUpdateError } = await supabase
         .from("exam_sessions")
-        .update(updateData)
+        .update({
+          completed: true,
+          duration: Math.round(7200 - timeRemaining),
+          risk_score: finalRiskScore,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", examSessionId)
+        .eq("user_id", user.id);
+
+      if (basicUpdateError) {
+        console.error("Error updating basic exam data:", basicUpdateError);
+        console.error("Basic update error details:", {
+          message: basicUpdateError.message,
+          code: basicUpdateError.code,
+          details: basicUpdateError.details,
+          hint: basicUpdateError.hint
+        });
+        throw new Error(`Failed to update basic exam data: ${basicUpdateError.message}`);
+      }
+
+      // Then update the AI results separately
+      const { data: updatedSession, error: aiUpdateError } = await supabase
+        .from("exam_sessions")
+        .update({ ai_detection_results: aiResults })
         .eq("id", examSessionId)
         .eq("user_id", user.id)
         .select()
         .single();
 
-      if (updateError) {
-        console.error("Error updating exam session:", updateError);
-        console.error("Update error details:", {
-          message: updateError.message,
-          code: updateError.code,
-          details: updateError.details,
-          hint: updateError.hint
+      if (aiUpdateError) {
+        console.error("Error updating AI detection results:", aiUpdateError);
+        console.error("AI update error details:", {
+          message: aiUpdateError.message,
+          code: aiUpdateError.code,
+          details: aiUpdateError.details,
+          hint: aiUpdateError.hint
         });
-        throw new Error(`Failed to update exam session: ${updateError.message}`);
+        // Don't throw here, continue with the process
+        console.warn("Failed to save AI detection results, but exam completion will continue");
       }
 
-      if (!updatedSession) {
-        console.error("No session data returned after update");
-        throw new Error("Failed to update exam session - no data returned");
+      // Record AI detection violation if confidence is high
+      if (avgAiScore > 70) {
+        const { error: violationError } = await supabase
+          .from('exam_violations')
+          .insert([{
+            exam_session_id: examSessionId,
+            user_id: user.id,
+            reason: "High likelihood of AI-generated content detected",
+            risk_score: aiRiskScore,
+            details: {
+              ai_detection_results: aiResults,
+              average_confidence: avgAiScore
+            },
+            created_at: new Date().toISOString()
+          }]);
+
+        if (violationError) {
+          console.error('Error recording AI detection violation:', violationError);
+          console.error('Violation error details:', {
+            message: violationError.message,
+            code: violationError.code,
+            details: violationError.details,
+            hint: violationError.hint
+          });
+        }
       }
 
-      console.log("Successfully updated exam session:", updatedSession);
+      console.log("Successfully completed exam session");
       
-      // Redirect to results page
-      await router.push("/candidate/results");
+      // Redirect to results page with exam ID
+      const examId = updatedSession?.exam_id || sessionCheck.exam_id;
+      await router.push(`/candidate/results?exam_id=${examId}`);
     } catch (error) {
       console.error("Error ending exam:", error);
       console.error("Full error details:", {
+        name: error.name,
         message: error.message,
         code: error?.code,
         details: error?.details,
@@ -974,7 +1033,7 @@ function isValid(s) {
         </div>
       </div>
 
-      {/* Warning Message */}
+      {/* Warning Messages */}
       {showWarning && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -987,6 +1046,24 @@ function isValid(s) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <p className="text-sm font-medium">{warningMessage}</p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* AI Warning Message */}
+      {showAIWarning && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed top-20 right-4 z-50"
+        >
+          <div className="bg-orange-500 backdrop-blur-lg rounded-lg p-4 shadow-lg">
+            <div className="flex items-center gap-3 text-white">
+              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <p className="text-sm font-medium">{aiWarningMessage}</p>
             </div>
           </div>
         </motion.div>

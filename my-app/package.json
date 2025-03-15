@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.49.1",
     "framer-motion": "^12.5.0",
     "next": "15.2.2",
+    "openai": "^4.87.3",
     "postcss": "^8.5.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
