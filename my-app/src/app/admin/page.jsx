@@ -528,34 +528,34 @@ export default function AdminDashboard() {
           <h3 className="text-xl font-semibold mb-4 text-gray-800">Session Timeline</h3>
           <div className="space-y-4">
             <div className="flex items-center">
-              <div className="flex-shrink-0 w-12 text-sm text-gray-500">Start</div>
-              <div className="flex-shrink-0 w-32 text-sm font-medium">{formatDate(examDetails.created_at)}</div>
-              <div className="ml-4 text-sm text-gray-600">Exam session started</div>
+              <div className="flex-shrink-0 w-12 text-sm text-gray-700">Start</div>
+              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(examDetails.created_at)}</div>
+              <div className="ml-4 text-sm text-gray-700">Exam session started</div>
             </div>
             {examDetails.exam_violations?.map((violation, index) => (
               <div key={violation.id} className="flex items-center">
-                <div className="flex-shrink-0 w-12 text-sm text-gray-500">
+                <div className="flex-shrink-0 w-12 text-sm text-gray-700">
                   +{Math.floor((new Date(violation.created_at) - new Date(examDetails.created_at)) / 60000)}m
                 </div>
-                <div className="flex-shrink-0 w-32 text-sm font-medium">{formatDate(violation.created_at)}</div>
+                <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(violation.created_at)}</div>
                 <div className="ml-4 text-sm text-red-600">{violation.reason}</div>
               </div>
             ))}
             {examDetails.behavior_logs?.map((log, index) => (
               <div key={log.id} className="flex items-center">
-                <div className="flex-shrink-0 w-12 text-sm text-gray-500">
+                <div className="flex-shrink-0 w-12 text-sm text-gray-700">
                   +{Math.floor((new Date(log.created_at) - new Date(examDetails.created_at)) / 60000)}m
                 </div>
-                <div className="flex-shrink-0 w-32 text-sm font-medium">{formatDate(log.created_at)}</div>
+                <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(log.created_at)}</div>
                 <div className="ml-4 text-sm text-blue-600">
                   {log.behavior_type} (Risk: {(log.risk_contribution * 100).toFixed(1)}%)
                 </div>
               </div>
             ))}
             <div className="flex items-center">
-              <div className="flex-shrink-0 w-12 text-sm text-gray-500">End</div>
-              <div className="flex-shrink-0 w-32 text-sm font-medium">{formatDate(examDetails.updated_at)}</div>
-              <div className="ml-4 text-sm text-gray-600">Exam session ended</div>
+              <div className="flex-shrink-0 w-12 text-sm text-gray-700">End</div>
+              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(examDetails.updated_at)}</div>
+              <div className="ml-4 text-sm text-gray-700">Exam session ended</div>
             </div>
           </div>
         </div>
