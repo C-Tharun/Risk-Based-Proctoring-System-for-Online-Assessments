@@ -16,6 +16,7 @@ export default function ExamPage() {
   const [showWarning, setShowWarning] = useState(false);
   const [warningMessage, setWarningMessage] = useState("");
   const [warningCount, setWarningCount] = useState(0);
+  const [riskLevel, setRiskLevel] = useState("LOW"); // Add risk level state
   const router = useRouter();
 
   // Behavior tracking state
@@ -86,6 +87,163 @@ export default function ExamPage() {
     return () => clearInterval(timer);
   }, [examStarted]);
 
+  // Function to request full screen
+  const requestFullScreen = async () => {
+    try {
+      const element = document.documentElement;
+      if (element.requestFullscreen) {
+        await element.requestFullscreen();
+      } else if (element.mozRequestFullScreen) {
+        await element.mozRequestFullScreen();
+      } else if (element.webkitRequestFullscreen) {
+        await element.webkitRequestFullscreen();
+      } else if (element.msRequestFullscreen) {
+        await element.msRequestFullscreen();
+      }
+    } catch (error) {
+      console.log('Fullscreen request failed:', error);
+      // Show warning to user about fullscreen requirement
+      setWarningMessage("⚠️ Warning: Please keep the exam window in focus. Fullscreen mode is required.");
+      setShowWarning(true);
+    }
+  };
+
+  // Function to check if in full screen
+  const isInFullScreen = () => {
+    return !!(
+      document.fullscreenElement ||
+      document.mozFullScreenElement ||
+      document.webkitFullscreenElement ||
+      document.msFullscreenElement
+    );
+  };
+
+  // Function to exit full screen
+  const exitFullScreen = async () => {
+    try {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.mozCancelFullScreen) {
+        await document.mozCancelFullScreen();
+      } else if (document.webkitExitFullscreen) {
+        await document.webkitExitFullscreen();
+      } else if (document.msExitFullscreen) {
+        await document.msExitFullscreen();
+      }
+    } catch (error) {
+      console.log('Exiting fullscreen failed:', error);
+    }
+  };
+
+  // Function to update risk level based on warning count
+  const updateRiskLevel = async (warningCount) => {
+    try {
+      let newRiskLevel = "LOW";
+      
+      // Update risk level based on warning count
+      if (warningCount >= 6) {
+        newRiskLevel = "HIGH";
+      } else if (warningCount >= 3) {
+        newRiskLevel = "MEDIUM";
+      }
+
+      if (newRiskLevel !== riskLevel) {
+        setRiskLevel(newRiskLevel);
+        
+        // Apply restrictions based on risk level
+        if (newRiskLevel === "MEDIUM") {
+          try {
+            await requestFullScreen();
+          } catch (error) {
+            console.log('Failed to enter fullscreen:', error);
+            setWarningMessage("⚠️ Warning: Please click 'Return to Fullscreen' button to continue the exam.");
+            setShowWarning(true);
+          }
+          setWarningMessage("⚠️ Warning: Risk level increased to MEDIUM. Full restrictions applied.");
+          setShowWarning(true);
+        } else if (newRiskLevel === "LOW") {
+          try {
+            if (isInFullScreen()) {
+              await exitFullScreen();
+            }
+          } catch (error) {
+            console.log('Failed to exit fullscreen:', error);
+          }
+          setWarningMessage("Risk level returned to LOW. Restrictions removed.");
+          setShowWarning(true);
+        } else if (newRiskLevel === "HIGH") {
+          // Terminate exam for HIGH risk level
+          setWarningMessage("⚠️ Critical: Risk level HIGH. Exam will be terminated.");
+          setShowWarning(true);
+          
+          // Verify exam session exists before updating
+          const { data: sessionCheck, error: checkError } = await supabase
+            .from("exam_sessions")
+            .select("id")
+            .eq("id", examSessionId)
+            .single();
+
+          if (checkError) {
+            console.error('Error checking exam session:', checkError.message);
+            return;
+          }
+
+          if (!sessionCheck) {
+            console.error('Exam session not found');
+            return;
+          }
+
+          // Update exam session as terminated
+          const { error: updateError } = await supabase
+            .from("exam_sessions")
+            .update({ 
+              terminated: true,
+              completed: true,
+              risk_score: 100, // Maximum risk score for terminated exam
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", examSessionId)
+            .select();
+
+          if (updateError) {
+            console.error('Error updating exam session for termination:', updateError.message);
+            return;
+          }
+
+          // Record termination details in violations table instead
+          const { error: violationError } = await supabase
+            .from('exam_violations')
+            .insert([{
+              exam_session_id: examSessionId,
+              user_id: user.id,
+              reason: "Exam terminated due to high risk level - 6 or more warnings",
+              risk_score: 100,
+              details: { 
+                warningCount, 
+                riskLevel: newRiskLevel,
+                terminationTime: new Date().toISOString()
+              },
+              created_at: new Date().toISOString()
+            }]);
+
+          if (violationError) {
+            console.error('Error recording termination violation:', violationError.message);
+          }
+
+          // Redirect to results page after a short delay
+          setTimeout(() => {
+            router.push("/candidate/results");
+          }, 3000);
+        }
+      }
+    } catch (error) {
+      console.error('Error in updateRiskLevel:', error.message);
+      if (error.details) {
+        console.error('Error details:', error.details);
+      }
+    }
+  };
+
   // Behavior monitoring effect
   useEffect(() => {
     if (!examStarted) return;
@@ -98,27 +256,90 @@ export default function ExamPage() {
         y: e.clientY,
         timestamp: Date.now()
       };
-      setMouseMovements(prev => [...prev.slice(-50), movement]); // Keep last 50 movements
+      setMouseMovements(prev => [...prev.slice(-50), movement]);
       setLastActivity(Date.now());
     };
 
     const handleKeyPress = (e) => {
-      setKeystrokes(prev => [...prev.slice(-50), Date.now()]); // Keep last 50 keystrokes
+      setKeystrokes(prev => [...prev.slice(-50), Date.now()]);
       setLastActivity(Date.now());
+    };
+
+    const handleKeyDown = async (e) => {
+      // Prevent Alt+Tab
+      if (e.altKey && e.key === 'Tab') {
+        e.preventDefault();
+        if (riskLevel === "MEDIUM") {
+          await updateWarningCount(
+            "⚠️ Warning: Keyboard shortcuts for switching tabs are not allowed during the exam.",
+            "Tab switch attempt"
+          );
+          await assessBehavior("Tab switch attempt");
+        }
+        return false;
+      }
+
+      // Prevent Ctrl+Tab and Ctrl+Shift+Tab
+      if (e.ctrlKey && (e.key === 'Tab' || (e.shiftKey && e.key === 'Tab'))) {
+        e.preventDefault();
+        if (riskLevel === "MEDIUM") {
+          await updateWarningCount(
+            "⚠️ Warning: Keyboard shortcuts for switching tabs are not allowed during the exam.",
+            "Tab switch attempt"
+          );
+          await assessBehavior("Tab switch attempt");
+        }
+        return false;
+      }
+
+      // Prevent Windows key
+      if (e.key === 'Meta' || e.key === 'OS') {
+        e.preventDefault();
+        if (riskLevel === "MEDIUM") {
+          await updateWarningCount(
+            "⚠️ Warning: Windows key is not allowed during the exam.",
+            "System key attempt"
+          );
+          await assessBehavior("System key attempt");
+        }
+        return false;
+      }
+
+      // Prevent Alt+F4
+      if (e.altKey && e.key === 'F4') {
+        e.preventDefault();
+        if (riskLevel === "MEDIUM") {
+          await updateWarningCount(
+            "⚠️ Warning: Keyboard shortcuts for closing the window are not allowed during the exam.",
+            "Window close attempt"
+          );
+          await assessBehavior("Window close attempt");
+        }
+        return false;
+      }
+    };
+
+    const handleContextMenu = async (e) => {
+      e.preventDefault();
+      await updateWarningCount(
+        "⚠️ Warning: Right-clicking is not allowed during the exam.",
+        "Right-click attempt"
+      );
+      await assessBehavior("Right-click attempt");
+      return false;
     };
 
     const handleVisibilityChange = async () => {
       if (document.visibilityState === "hidden") {
-        // Increment tab switches count
         setTabSwitches(prev => prev + 1);
-        
-        // Show warning
+        if (riskLevel === "MEDIUM") {
+          setWarningMessage("⚠️ Warning: Please return to the exam window. Fullscreen mode is required.");
+          setShowWarning(true);
+        }
         await updateWarningCount(
           "⚠️ Warning: Tab switching detected. This may be considered as malpractice.",
           "Tab switch detected"
         );
-        
-        // Assess behavior
         await assessBehavior("Tab switch detected");
       }
     };
@@ -126,38 +347,23 @@ export default function ExamPage() {
     const handleMouseLeave = async (e) => {
       if (e.clientY <= 0) {
         setMouseLeaveCount(prev => prev + 1);
-        
+        if (riskLevel === "MEDIUM" && !isInFullScreen()) {
+          setWarningMessage("⚠️ Warning: Please keep the exam window in focus. Fullscreen mode is required.");
+          setShowWarning(true);
+        }
         await updateWarningCount(
           "⚠️ Warning: Mouse left exam window. Please keep your mouse within the exam window.",
           "Mouse left exam window"
         );
-        
         await assessBehavior("Mouse left exam window");
       }
     };
 
-    const handleCopy = async (e) => {
-      e.preventDefault();
-      setCopyPasteAttempts(prev => prev + 1);
-      
-      await updateWarningCount(
-        "⚠️ Warning: Copy attempt detected. This is not allowed during the exam.",
-        "Copy attempt detected"
-      );
-      
-      await assessBehavior("Copy attempt detected");
-    };
-
-    const handlePaste = async (e) => {
-      e.preventDefault();
-      setCopyPasteAttempts(prev => prev + 1);
-      
-      await updateWarningCount(
-        "⚠️ Warning: Paste attempt detected. This is not allowed during the exam.",
-        "Paste attempt detected"
-      );
-      
-      await assessBehavior("Paste attempt detected");
+    const handleFullscreenChange = () => {
+      if (riskLevel === "MEDIUM" && !isInFullScreen()) {
+        setWarningMessage("⚠️ Warning: Fullscreen mode is required. Please click the 'Return to Fullscreen' button.");
+        setShowWarning(true);
+      }
     };
 
     // Periodic behavior assessment
@@ -168,21 +374,26 @@ export default function ExamPage() {
     // Add event listeners
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("keypress", handleKeyPress);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     document.addEventListener("mouseleave", handleMouseLeave);
-    document.addEventListener("copy", handleCopy);
-    document.addEventListener("paste", handlePaste);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("msfullscreenchange", handleFullscreenChange);
 
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("keypress", handleKeyPress);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       document.removeEventListener("mouseleave", handleMouseLeave);
-      document.removeEventListener("copy", handleCopy);
-      document.removeEventListener("paste", handlePaste);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
       clearInterval(assessmentInterval);
     };
-  }, [examStarted, examSessionId]);
+  }, [examStarted, examSessionId, riskLevel]);
 
   const updateWarningCount = async (message, trigger) => {
     try {
@@ -216,6 +427,9 @@ export default function ExamPage() {
 
       // Calculate new warning count
       const newWarningCount = (currentSession?.warnings || 0) + 1;
+
+      // Update risk level
+      await updateRiskLevel(newWarningCount);
 
       // Update local state
       setWarningCount(newWarningCount);
@@ -306,7 +520,7 @@ export default function ExamPage() {
 
       // Show warning based on trigger
       if (trigger === "Periodic assessment" && (Date.now() - lastActivity) > 30000) {
-        updateWarningCount(
+        await updateWarningCount(
           "⚠️ Warning: Prolonged inactivity detected. Please remain active during the exam.",
           trigger
         );
@@ -324,33 +538,43 @@ export default function ExamPage() {
         });
 
       if (behaviorError) {
-        console.error('Error recording behavior log:', behaviorError);
+        console.error('Error recording behavior log:', behaviorError.message);
       }
 
       // Record violation if risk is high
       if (totalRiskContribution > 0.5) {
         const riskScore = Math.round(totalRiskContribution * 100);
+        
+        // Create violation data object
+        const violationData = {
+          exam_session_id: examSessionId,
+          user_id: user.id,
+          reason: warningMessage || trigger,
+          risk_score: riskScore,
+          details: behaviors,
+          created_at: new Date().toISOString()
+        };
+
+        // Insert violation
         const { error: violationError } = await supabase
           .from('exam_violations')
-          .insert({
-            exam_session_id: examSessionId,
-            user_id: user.id,
-            reason: warningMessage || trigger,
-            risk_score: riskScore,
-            details: behaviors,
-            created_at: new Date().toISOString()
-          });
+          .insert([violationData]);
 
         if (violationError) {
-          console.error('Error recording violation:', violationError);
+          console.error('Error recording violation:', violationError.message);
+          console.error('Violation data:', violationData);
         }
       }
 
     } catch (error) {
-      console.error('Error in assessBehavior:', error);
+      console.error('Error in assessBehavior:', error.message);
+      if (error.details) {
+        console.error('Error details:', error.details);
+      }
     }
   };
 
+  // Update startExam function to remove audio setup
   const startExam = async () => {
     try {
       console.log("Starting exam for user:", user.id);
@@ -415,6 +639,7 @@ export default function ExamPage() {
     }
   };
 
+  // Update the exam end function to remove audio cleanup
   const endExam = async () => {
     if (!examSessionId) {
       console.error("No exam session ID found");
@@ -634,6 +859,21 @@ export default function ExamPage() {
               <h1 className="text-2xl font-bold text-white">Exam in Progress</h1>
               <p className="text-blue-50/90">Question {currentQuestion + 1} of {questions.length}</p>
               <p className="text-yellow-400 mt-1">Warnings: {warningCount}</p>
+              <p className={`mt-1 ${
+                riskLevel === "LOW" ? "text-green-400" :
+                riskLevel === "MEDIUM" ? "text-yellow-400" :
+                "text-red-400"
+              }`}>
+                Risk Level: {riskLevel}
+              </p>
+              {riskLevel === "MEDIUM" && !isInFullScreen() && (
+                <button
+                  onClick={requestFullScreen}
+                  className="mt-2 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                >
+                  Return to Fullscreen
+                </button>
+              )}
             </div>
             <div className="text-right">
               <p className="text-white font-medium">Time Remaining</p>

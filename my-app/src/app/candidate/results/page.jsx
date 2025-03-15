@@ -13,6 +13,15 @@ export default function ExamResults() {
   const [allExams, setAllExams] = useState([]);
   const router = useRouter();
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.push("http://localhost:3000");
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
+
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -196,10 +205,10 @@ export default function ExamResults() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => router.push("/candidate/exam")}
-                className="bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300"
+                onClick={handleLogout}
+                className="bg-red-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-red-600 transition-colors duration-300"
               >
-                Start New Exam
+                Logout
               </motion.button>
             </div>
           </motion.div>
@@ -222,7 +231,27 @@ export default function ExamResults() {
             transition={{ duration: 0.8 }}
             className="bg-white/10 backdrop-blur-lg rounded-2xl p-8"
           >
-            <h1 className="text-3xl font-bold text-white mb-8">Exam Results</h1>
+            <div className="flex justify-between items-center mb-8">
+              <h1 className="text-3xl font-bold text-white">Exam Results</h1>
+              <div className="flex gap-4">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => router.push("/candidate")}
+                  className="bg-blue-500 text-white rounded-xl py-2 px-6 font-medium hover:bg-blue-600 transition-colors duration-300"
+                >
+                  Back to Dashboard
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleLogout}
+                  className="bg-red-500 text-white rounded-xl py-2 px-6 font-medium hover:bg-red-600 transition-colors duration-300"
+                >
+                  Logout
+                </motion.button>
+              </div>
+            </div>
             
             {/* Exam Identifier */}
             <div className="bg-white/5 rounded-xl p-4 mb-8">
@@ -385,26 +414,6 @@ export default function ExamResults() {
                 </div>
               </div>
             )}
-
-            {/* Action Buttons */}
-            <div className="flex gap-4 mt-8">
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => router.push("/candidate")}
-                className="flex-1 bg-blue-500 text-white rounded-xl py-4 font-medium hover:bg-blue-600 transition-colors duration-300"
-              >
-                Back to Dashboard
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => router.push("/candidate/exam")}
-                className="flex-1 bg-green-500 text-white rounded-xl py-4 font-medium hover:bg-green-600 transition-colors duration-300"
-              >
-                Take Another Exam
-              </motion.button>
-            </div>
           </motion.div>
         </div>
       </div>
