@@ -1425,15 +1425,15 @@ function isValid(s) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
+      <div className="flex items-center justify-center min-h-screen bg-[#1a1f2e]">
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
           className="text-center"
         >
-          <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white text-lg font-medium tracking-wide">Loading Exam...</p>
+          <div className="w-16 h-16 border-4 border-[#4f46e5] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-200 text-lg font-medium tracking-wide">Loading Exam...</p>
         </motion.div>
       </div>
     );
@@ -1441,8 +1441,8 @@ function isValid(s) {
 
   if (!examStarted || !typingTestComplete) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
-        <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:60px_60px]" />
+      <div className="min-h-screen bg-[#1a1f2e]">
+        <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:60px_60px]" />
         <div className="relative min-h-screen px-6 py-12">
           {!typingTestComplete ? (
             <TypingTest onComplete={handleTypingTestComplete} />
@@ -1453,33 +1453,33 @@ function isValid(s) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8 }}
             >
-              <h1 className="text-4xl font-black text-white mb-6">Welcome to the Exam</h1>
+              <h1 className="text-4xl font-black text-gray-100 mb-6">Welcome to the Exam</h1>
               {hasExternalDisplay ? (
-                <div className="bg-red-500/90 text-white p-4 rounded-xl mb-8">
+                <div className="bg-red-500/90 text-white p-4 rounded-lg mb-8">
                   ⚠️ External display detected. Please disconnect all external monitors before proceeding.
                 </div>
               ) : (
                 <>
-                  <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 mb-8">
-                    <h2 className="text-2xl font-bold text-white mb-4">Important Instructions</h2>
-                    <ul className="text-left text-blue-50/90 space-y-3">
+                  <div className="bg-[#252b3b] shadow-xl rounded-lg p-8 mb-8">
+                    <h2 className="text-2xl font-bold text-gray-100 mb-4">Important Instructions</h2>
+                    <ul className="text-left text-gray-300 space-y-3">
                       <li className="flex items-start gap-2">
-                        <span className="text-green-400">✓</span>
+                        <span className="text-emerald-400">✓</span>
                         <span>Ensure you are using a single display. External monitors are not allowed.</span>
                       </li>
                       <li className="flex items-start gap-2">
-                        <span className="text-green-400">✓</span>
+                        <span className="text-emerald-400">✓</span>
                         <span>Keep the exam window in focus. Switching tabs or windows will be flagged.</span>
                       </li>
                       <li className="flex items-start gap-2">
-                        <span className="text-green-400">✓</span>
+                        <span className="text-emerald-400">✓</span>
                         <span>The exam will automatically terminate after 8 warnings or if risk level becomes too high.</span>
                       </li>
                     </ul>
                   </div>
-                <p className="text-blue-50/90 mb-8">
-                      Please read all instructions carefully before starting the exam.
-                </p>
+                  <p className="text-gray-400 mb-8">
+                    Please read all instructions carefully before starting the exam.
+                  </p>
                 </>
               )}
               <motion.button
@@ -1487,8 +1487,8 @@ function isValid(s) {
                 whileTap={{ scale: 0.98 }}
                 onClick={startExam}
                 disabled={hasExternalDisplay}
-                className={`bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg transition-colors duration-300 ${
-                  hasExternalDisplay ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-600'
+                className={`bg-[#4f46e5] text-white rounded-lg py-4 px-8 font-medium text-lg transition-all duration-300 ${
+                  hasExternalDisplay ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[#4338ca] hover:shadow-lg'
                 }`}
               >
                 Start Exam
@@ -1501,48 +1501,54 @@ function isValid(s) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 text-white p-8">
+    <div className="min-h-screen bg-[#1a1f2e] text-gray-100">
       {/* Header */}
-      <div className="px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold text-white">Exam in Progress</h1>
-            <p className="text-blue-50/90">Question {currentQuestion + 1} of {questions.length}</p>
-            <p className="text-yellow-400">Warnings: {warningCount}</p>
+      <div className="px-6 py-4 bg-[#252b3b] shadow-lg">
+        <div className="flex items-center justify-between max-w-[1600px] mx-auto">
+          <div className="flex items-center gap-6">
+            <h1 className="text-xl font-semibold text-gray-100">Exam in Progress</h1>
+            <div className="flex items-center gap-4">
+              <span className="px-3 py-1 bg-[#2d3548] rounded-full text-sm">
+                Question {currentQuestion + 1} of {questions.length}
+              </span>
+              <span className="px-3 py-1 bg-[#2d3548] rounded-full text-sm">
+                Warnings: {warningCount}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-white/80">Time Remaining</span>
-            <span className="text-green-400 font-mono text-xl">
+          <div className="flex items-center gap-3 bg-[#2d3548] px-4 py-2 rounded-lg">
+            <span className="text-gray-400">Time Remaining</span>
+            <span className="text-[#4f46e5] font-mono text-xl">
               {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, "0")}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Add monitoring message display */}
+      {/* Monitoring message */}
       {showMonitoringMessage && (
-        <div className="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center">
+        <div className="fixed top-4 right-4 bg-emerald-500/90 backdrop-blur-sm text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center">
           <span className="mr-2">🔒</span>
           {monitoringMessage}
         </div>
       )}
 
-      {/* Existing warning message display */}
+      {/* Warning message */}
       {showWarning && (
-        <div className="fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center">
+        <div className="fixed top-4 right-4 bg-red-500/90 backdrop-blur-sm text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center">
           <span className="mr-2">⚠️</span>
           {warningMessage}
         </div>
       )}
 
-      {/* AI Warning Message */}
+      {/* AI Warning */}
       {showAIWarning && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="fixed top-20 right-4 z-50"
         >
-          <div className="bg-orange-500 backdrop-blur-lg rounded-lg p-4 shadow-lg">
+          <div className="bg-orange-500/90 backdrop-blur-sm rounded-lg p-4 shadow-lg">
             <div className="flex items-center gap-3 text-white">
               <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -1554,18 +1560,18 @@ function isValid(s) {
       )}
 
       {/* Exam Content */}
-      <div ref={examContainerRef} className="h-[calc(100vh-64px)] px-6">
-        <div className="h-full">
+      <div ref={examContainerRef} className="h-[calc(100vh-64px)] p-6">
+        <div className="h-full max-w-[1600px] mx-auto">
           {questions[currentQuestion].type === "mcq" ? (
-            <div className="max-w-4xl mx-auto p-6">
-              <h2 className="text-xl font-bold text-white mb-6">
+            <div className="max-w-4xl mx-auto bg-[#252b3b] rounded-lg shadow-xl p-8">
+              <h2 className="text-xl font-bold text-gray-100 mb-6">
                 {questions[currentQuestion].question}
               </h2>
               <div className="space-y-4">
                 {questions[currentQuestion].options.map((option, index) => (
                   <button
                     key={index}
-                    className="w-full text-left p-4 bg-white/5 hover:bg-white/10 rounded-xl text-white transition-colors duration-300"
+                    className="w-full text-left p-4 bg-[#2d3548] hover:bg-[#363f57] rounded-lg text-gray-200 transition-all duration-300 hover:shadow-md"
                     onClick={() => handleOptionClick(option)}
                   >
                     {option}
@@ -1574,7 +1580,35 @@ function isValid(s) {
               </div>
             </div>
           ) : questions[currentQuestion].type === "theory" ? (
-            renderTheoryQuestion()
+            <div className="max-w-4xl mx-auto bg-[#252b3b] rounded-lg shadow-xl p-8">
+              <h2 className="text-xl font-bold text-gray-100 mb-6">
+                {questions[currentQuestion].question}
+              </h2>
+              <div className="mt-6">
+                <textarea
+                  value={codeAnswers[questions[currentQuestion].id] || ""}
+                  onChange={(e) => handleAnswerTyping(e, questions[currentQuestion].id)}
+                  className="w-full h-64 bg-[#2d3548] text-gray-200 rounded-lg p-4 focus:outline-none focus:ring-2 focus:ring-[#4f46e5] resize-none font-mono text-sm"
+                  placeholder="Type your answer here..."
+                />
+                <div className="mt-4 bg-[#2d3548] rounded-lg p-4">
+                  <h3 className="text-lg font-semibold text-gray-100 mb-2">Answer Guidelines:</h3>
+                  <div className="text-gray-300 space-y-2">
+                    {questions[currentQuestion].expectedAnswer.split('\n').map((line, index) => (
+                      <p key={index}>{line}</p>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={handleCodeSubmit}
+                    className="bg-[#4f46e5] text-white rounded-lg px-6 py-2 font-medium hover:bg-[#4338ca] transition-all duration-300 hover:shadow-lg"
+                  >
+                    {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : questions[currentQuestion].type === "coding" ? (
             renderCodingQuestion()
           ) : null}
