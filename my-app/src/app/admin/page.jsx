@@ -21,6 +21,7 @@ export default function AdminDashboard() {
     const checkAuth = async () => {
       console.log('Checking authentication...');
       try {
+        // Get current session
         const { data: { session }, error: authError } = await supabase.auth.getSession();
         console.log('Auth session:', session);
         
@@ -36,6 +37,19 @@ export default function AdminDashboard() {
           return;
         }
 
+        // Set up auth state change listener
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+            console.log('Auth state changed:', event);
+            if (!session) {
+              router.push("/auth/login");
+              return;
+            }
+          }
+        });
+
         // Check if user has admin role
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
@@ -47,9 +61,9 @@ export default function AdminDashboard() {
 
         if (profileError) {
           console.error('Profile error:', profileError);
-          router.push("/auth/login");
-          return;
-        }
+        router.push("/auth/login");
+        return;
+      }
 
         if (profile?.role !== 'admin') {
           console.log('User is not an admin, redirecting...');
@@ -60,11 +74,17 @@ export default function AdminDashboard() {
         console.log('Admin user authenticated:', session.user);
         setUser(session.user);
         setLoading(false);
+
+        // Return cleanup function
+        return () => {
+          subscription.unsubscribe();
+        };
       } catch (error) {
         console.error('Error in checkAuth:', error);
         router.push("/auth/login");
       }
     };
+
     checkAuth();
   }, [router]);
 
@@ -75,37 +95,31 @@ export default function AdminDashboard() {
     }
 
     // Fetch active exam sessions
-    //Hello
     const fetchActiveSessions = async () => {
       try {
-        console.log('Fetching active sessions...');
-        // First get the exam sessions
+        // First get the active exam sessions
         const { data: sessions, error: sessionError } = await supabase
-          .from("exam_sessions")
-          .select("*")
-          .eq("completed", false)
-          .order("created_at", { ascending: false });
-
-        console.log('Active sessions response:', { sessions, error: sessionError });
+          .from('exam_sessions')
+          .select('*, typing_speed_wpm, user_details')
+          .eq('completed', false)
+          .order('created_at', { ascending: false });
 
         if (sessionError) {
-          console.error("Error fetching active sessions:", sessionError.message);
+          console.error('Error fetching active sessions:', sessionError);
           setActiveSessions([]);
           return;
         }
 
-        // If we have sessions, get the corresponding user emails
+        // If we have sessions, get the corresponding user profiles
         if (sessions && sessions.length > 0) {
           const userIds = [...new Set(sessions.map(session => session.user_id))];
           const { data: profiles, error: profileError } = await supabase
-            .from("profiles")
-            .select("id, email")
-            .in("id", userIds);
-
-          console.log('Profiles response:', { profiles, error: profileError });
+            .from('profiles')
+            .select('id, email, role')
+            .in('id', userIds);
 
           if (profileError) {
-            console.error("Error fetching profiles:", profileError.message);
+            console.error('Error fetching profiles:', profileError);
             return;
           }
 
@@ -121,7 +135,7 @@ export default function AdminDashboard() {
           setActiveSessions([]);
         }
       } catch (error) {
-        console.error("Error in fetchActiveSessions:", error);
+        console.error('Error fetching active sessions:', error);
         setActiveSessions([]);
       }
     };
@@ -131,10 +145,10 @@ export default function AdminDashboard() {
       try {
         console.log('Fetching completed sessions...');
         
-        // First get the completed exam sessions
+        // Get completed exam sessions with typing speed data
         const { data: sessions, error: sessionError } = await supabase
           .from('exam_sessions')
-          .select('*')
+          .select('*, typing_speed_wpm, user_details')
           .eq('completed', true)
           .order('created_at', { ascending: false });
 
@@ -174,46 +188,39 @@ export default function AdminDashboard() {
       }
     };
 
-    // Initial fetch
-    fetchActiveSessions();
-    fetchCompletedSessions();
-
-    // Set up real-time subscriptions
-    const activeSubscription = supabase
-      .channel("active_sessions")
+    // Set up real-time subscription for exam session updates
+    const subscription = supabase
+      .channel('exam_sessions_changes')
       .on(
-        "postgres_changes",
+        'postgres_changes',
         {
-          event: "*",
-          schema: "public",
-          table: "exam_sessions",
-          filter: "completed=eq.false"
+          event: '*',
+          schema: 'public',
+          table: 'exam_sessions'
         },
         (payload) => {
+          console.log('Exam session changed:', payload);
+          // Refresh both active and completed sessions
           fetchActiveSessions();
-        }
-      )
-      .subscribe();
-
-    const completedSubscription = supabase
-      .channel("completed_sessions")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "exam_sessions",
-          filter: "completed=eq.true"
-        },
-        (payload) => {
           fetchCompletedSessions();
         }
       )
       .subscribe();
 
+    // Initial fetch
+    fetchActiveSessions();
+    fetchCompletedSessions();
+
+    // Set up periodic refresh
+    const refreshInterval = setInterval(() => {
+      fetchActiveSessions();
+      fetchCompletedSessions();
+    }, 30000); // Refresh every 30 seconds
+
+    // Cleanup
     return () => {
-      activeSubscription.unsubscribe();
-      completedSubscription.unsubscribe();
+      subscription.unsubscribe();
+      clearInterval(refreshInterval);
     };
   }, [user]);
 
@@ -551,7 +558,6 @@ export default function AdminDashboard() {
   };
 
   const renderExamDetails = (exam) => {
-    const typingSpeed = exam.typing_speed_wpm || exam.user_details?.typingSpeed || 0;
     const typingTestText = exam.user_details?.typingTestText || '';
     const testDuration = exam.user_details?.testStartTime && exam.user_details?.testEndTime
       ? Math.round((exam.user_details.testEndTime - exam.user_details.testStartTime) / 1000)
@@ -578,10 +584,6 @@ export default function AdminDashboard() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Risk Score</p>
                 <p className="mt-1 text-sm text-gray-900">{exam.risk_score || 0}%</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500">Typing Speed</p>
-                <p className="mt-1 text-sm text-gray-900">{typingSpeed} WPM</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500">Status</p>
@@ -611,22 +613,6 @@ export default function AdminDashboard() {
                       <p className="text-sm font-medium text-gray-500">Education</p>
                       <p className="mt-1 text-sm text-gray-900">{exam.user_details.education || "Not provided"}</p>
                     </div>
-                    <div className="col-span-2">
-                      <p className="text-sm font-medium text-gray-500">Typing Test Details</p>
-                      <div className="mt-1 text-sm text-gray-900 space-y-2">
-                        <p>Speed: {typingSpeed} WPM</p>
-                        <p>Text Length: {typingTestText.length} characters</p>
-                        <p>Test Duration: {testDuration} seconds</p>
-                        {typingTestText && (
-                          <div>
-                            <p className="font-medium mt-2 mb-1">Sample Text:</p>
-                            <p className="bg-gray-100 p-2 rounded text-gray-700 font-mono text-sm">
-                              {typingTestText}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -637,52 +623,11 @@ export default function AdminDashboard() {
         {/* Summary Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-gray-50 p-6 rounded-lg">
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">Exam Summary</h3>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-600">Risk Score</p>
-                <div className="flex items-center">
-                  <div className="flex-1 bg-gray-200 rounded-full h-4">
-                    <div
-                      className={`h-4 rounded-full ${
-                        getRiskLevel(exam.risk_score).level === "High"
-                          ? "bg-red-500"
-                          : getRiskLevel(exam.risk_score).level === "Medium"
-                          ? "bg-yellow-500"
-                          : "bg-green-500"
-                      }`}
-                      style={{ width: `${exam.risk_score}%` }}
-                    ></div>
-                  </div>
-                  <span className={`ml-3 font-medium ${getRiskLevel(exam.risk_score).color}`}>
-                    {exam.risk_score}%
-                  </span>
-                </div>
-                <p className="mt-1 text-sm font-medium text-gray-600">
-                  Risk Level: {getRiskLevel(exam.risk_score).level}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Warnings</p>
-                <p className="font-medium text-gray-900">{exam.warnings} warnings issued</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Monitoring Level</p>
-                <p className="font-medium text-gray-900">{exam.monitoring_level}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-gray-50 p-6 rounded-lg">
             <h3 className="text-xl font-semibold mb-4 text-gray-800">Session Statistics</h3>
             <div className="space-y-3">
               <div>
                 <p className="text-sm text-gray-600">Total Duration</p>
                 <p className="font-medium text-gray-900">{Math.round(exam.duration / 60)} minutes</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Typing Speed</p>
-                <p className="font-medium text-gray-900">{exam.typing_speed_wpm || exam.user_details?.typingSpeed || 0} WPM</p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Status</p>
@@ -699,41 +644,40 @@ export default function AdminDashboard() {
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Timeline Section */}
-        <div className="bg-gray-50 p-6 rounded-lg">
-          <h3 className="text-xl font-semibold mb-4 text-gray-800">Session Timeline</h3>
-          <div className="space-y-4">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 w-12 text-sm text-gray-700">Start</div>
-              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(exam.created_at)}</div>
-              <div className="ml-4 text-sm text-gray-700">Exam session started</div>
-            </div>
-            {exam.exam_violations?.map((violation, index) => (
-              <div key={violation.id} className="flex items-center">
-                <div className="flex-shrink-0 w-12 text-sm text-gray-700">
-                  +{Math.floor((new Date(violation.created_at) - new Date(exam.created_at)) / 60000)}m
-                </div>
-                <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(violation.created_at)}</div>
-                <div className="ml-4 text-sm text-red-600">{violation.reason}</div>
+          <div className="bg-gray-50 p-6 rounded-lg">
+            <h3 className="text-xl font-semibold mb-4 text-gray-800">Session Timeline</h3>
+            <div className="space-y-4">
+              <div className="flex items-center">
+                <div className="flex-shrink-0 w-12 text-sm text-gray-700">Start</div>
+                <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(exam.created_at)}</div>
+                <div className="ml-4 text-sm text-gray-700">Exam session started</div>
               </div>
-            ))}
-            {exam.behavior_logs?.map((log, index) => (
-              <div key={log.id} className="flex items-center">
-                <div className="flex-shrink-0 w-12 text-sm text-gray-700">
-                  +{Math.floor((new Date(log.created_at) - new Date(exam.created_at)) / 60000)}m
+              {exam.exam_violations?.map((violation, index) => (
+                <div key={violation.id} className="flex items-center">
+                  <div className="flex-shrink-0 w-12 text-sm text-gray-700">
+                    +{Math.floor((new Date(violation.created_at) - new Date(exam.created_at)) / 60000)}m
+                  </div>
+                  <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(violation.created_at)}</div>
+                  <div className="ml-4 text-sm text-red-600">{violation.reason}</div>
                 </div>
-                <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(log.created_at)}</div>
-                <div className="ml-4 text-sm text-blue-600">
-                  {log.behavior_type} (Risk: {(log.risk_contribution * 100).toFixed(1)}%)
+              ))}
+              {exam.behavior_logs?.map((log, index) => (
+                <div key={log.id} className="flex items-center">
+                  <div className="flex-shrink-0 w-12 text-sm text-gray-700">
+                    +{Math.floor((new Date(log.created_at) - new Date(exam.created_at)) / 60000)}m
+                  </div>
+                  <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(log.created_at)}</div>
+                  <div className="ml-4 text-sm text-blue-600">
+                    {log.behavior_type} (Risk: {(log.risk_contribution * 100).toFixed(1)}%)
+                  </div>
                 </div>
+              ))}
+              <div className="flex items-center">
+                <div className="flex-shrink-0 w-12 text-sm text-gray-700">End</div>
+                <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(exam.updated_at)}</div>
+                <div className="ml-4 text-sm text-gray-700">Exam session ended</div>
               </div>
-            ))}
-            <div className="flex items-center">
-              <div className="flex-shrink-0 w-12 text-sm text-gray-700">End</div>
-              <div className="flex-shrink-0 w-32 text-sm font-medium text-gray-900">{formatDate(exam.updated_at)}</div>
-              <div className="ml-4 text-sm text-gray-700">Exam session ended</div>
             </div>
           </div>
         </div>
@@ -839,10 +783,14 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
-      router.push("/");
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("Error signing out:", error);
+        return;
+      }
+      router.push("http://localhost:3000");
     } catch (error) {
-      console.error("Error signing out:", error);
+      console.error("Error in handleLogout:", error);
     }
   };
 
@@ -883,7 +831,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* Completed Sessions Section */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6">
+              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6">
             <h2 className="text-2xl font-semibold text-white mb-4">Completed Sessions</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-white/90">
@@ -892,7 +840,6 @@ export default function AdminDashboard() {
                     <th className="py-3 px-4">Exam ID</th>
                     <th className="py-3 px-4">Candidate</th>
                     <th className="py-3 px-4">Risk Score</th>
-                    <th className="py-3 px-4">Typing Speed</th>
                     <th className="py-3 px-4">Duration</th>
                     <th className="py-3 px-4">Completed</th>
                     <th className="py-3 px-4">Actions</th>
@@ -906,18 +853,15 @@ export default function AdminDashboard() {
                       <td className={`py-3 px-4 ${getRiskLevel(session.risk_score).color}`}>
                         {session.risk_score}% ({getRiskLevel(session.risk_score).level})
                       </td>
-                      <td className="py-3 px-4">
-                        {session.typing_speed_wpm ? `${session.typing_speed_wpm} WPM` : (session.user_details?.typingSpeed ? `${session.user_details.typingSpeed} WPM` : 'N/A')}
-                      </td>
                       <td className="py-3 px-4">{Math.floor(session.duration / 60)} minutes</td>
                       <td className="py-3 px-4">{formatDate(session.updated_at)}</td>
                       <td className="py-3 px-4">
-                        <button
+                    <button
                           onClick={() => fetchExamDetails(session.id)}
                           className="bg-blue-500 text-white px-3 py-1 rounded mr-2 hover:bg-blue-600"
                         >
                           View Details
-                        </button>
+                    </button>
                       </td>
                     </tr>
                   ))}
@@ -930,8 +874,8 @@ export default function AdminDashboard() {
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
+                    </div>
+                  </div>
 
           {/* Exam Details Modal */}
           {examDetails && (
@@ -941,14 +885,14 @@ export default function AdminDashboard() {
                   <h3 className="text-xl font-semibold">
                     Exam Details - {examDetails.exam_id}
                   </h3>
-                  <button
+                            <button
                     onClick={() => setExamDetails(null)}
                     className="text-gray-500 hover:text-gray-700"
                   >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                  </button>
+                            </button>
                 </div>
                 <div className="p-6">
                   {renderExamDetails(examDetails)}

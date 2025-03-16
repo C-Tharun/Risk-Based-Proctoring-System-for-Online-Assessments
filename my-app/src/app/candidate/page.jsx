@@ -131,24 +131,30 @@ export default function CandidateExam() {
           {/* Exam Instructions */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-6">
             <h3 className="text-lg font-bold text-white mb-4">Instructions</h3>
-            <ul className="space-y-3 text-blue-50/90">
+            <ul className="text-blue-50/90 space-y-4">
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Ensure your camera and microphone are working properly</span>
+                <span>Ensure you are using a single display. External monitors are not allowed.</span>
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Keep your face visible to the camera throughout the exam</span>
+                <span>Keep the exam window in focus. Switching tabs or windows will be flagged.</span>
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Do not switch browser tabs or windows</span>
+                <span>Copy-paste functionality is disabled during the exam.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>The exam will automatically terminate after 8 warnings or if risk level becomes too high.</span>
               </li>
             </ul>
           </div>

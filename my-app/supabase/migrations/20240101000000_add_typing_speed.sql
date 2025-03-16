@@ -1,7 +1,7 @@
--- Add typing speed and user details columns to exam_sessions table
+-- Remove typing speed and user details columns from exam_sessions table
 ALTER TABLE exam_sessions
-ADD COLUMN typing_speed_wpm INTEGER,
-ADD COLUMN user_details JSONB;
+DROP COLUMN IF EXISTS typing_speed_wpm,
+DROP COLUMN IF EXISTS user_details;
 
 -- Drop existing policies
 DROP POLICY IF EXISTS "Users can view their own exam sessions" ON exam_sessions;

@@ -25,7 +25,6 @@ export default function ExamPage() {
   const [keystrokes, setKeystrokes] = useState([]);
   const [tabSwitches, setTabSwitches] = useState(0);
   const [mouseLeaveCount, setMouseLeaveCount] = useState(0);
-  const [copyPasteAttempts, setCopyPasteAttempts] = useState(0);
   const [lastActivity, setLastActivity] = useState(Date.now());
 
   const examContainerRef = useRef(null);
@@ -51,46 +50,15 @@ export default function ExamPage() {
     },
     {
       id: 3,
-      question: `Two Sum Problem
-
-Given an array of integers nums and an integer target, return indices of the two numbers in nums such that they add up to target.
-
-You may assume that each input would have exactly one solution, and you may not use the same element twice.
-
-You can return the answer in any order.
-
-Example 1:
-Input: nums = [2,7,11,15], target = 9
-Output: [0,1]
-Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].
-
-Example 2:
-Input: nums = [3,2,4], target = 6
-Output: [1,2]
-Explanation: Because nums[1] + nums[2] == 6, we return [1, 2].
-
-Constraints:
-• 2 <= nums.length <= 104
-• -109 <= nums[i] <= 109
-• -109 <= target <= 109
-• Only one valid answer exists
-
-Follow-up: Can you come up with an algorithm that is less than O(n²) time complexity?`,
-      type: "coding",
-      startingCode: `/**
- * @param {number[]} nums
- * @param {number} target
- * @return {number[]}
- */
-function twoSum(nums, target) {
-    // Write your solution here
-    
-}`,
-      testCases: [
-        { input: [[2,7,11,15], 9], expectedOutput: [0,1], explanation: "nums[0] + nums[1] = 2 + 7 = 9" },
-        { input: [[3,2,4], 6], expectedOutput: [1,2], explanation: "nums[1] + nums[2] = 2 + 4 = 6" },
-        { input: [[3,3], 6], expectedOutput: [0,1], explanation: "nums[0] + nums[1] = 3 + 3 = 6" }
-      ]
+      question: "Explain the differences between Breadth-First Search (BFS) and Depth-First Search (DFS) algorithms. Include their time complexity, space complexity, and typical use cases.",
+      type: "theory",
+      expectedAnswer: "A comprehensive answer should cover:\n1. Basic concepts of BFS and DFS\n2. Time and space complexity analysis\n3. Use cases for each algorithm\n4. Implementation differences\n5. Advantages and disadvantages",
+      rubric: {
+        concepts: "Understanding of basic traversal mechanisms",
+        complexity: "Correct analysis of time and space complexity",
+        useCases: "Appropriate examples of applications",
+        comparison: "Clear differentiation between the algorithms"
+      }
     },
     {
       id: 4,
@@ -157,157 +125,9 @@ function isValid(s) {
   const [showAIWarning, setShowAIWarning] = useState(false);
   const [aiWarningMessage, setAiWarningMessage] = useState("");
 
-  const [showTypingTest, setShowTypingTest] = useState(true);
-  const [typingTestCompleted, setTypingTestCompleted] = useState(false);
-  const [typingSpeed, setTypingSpeed] = useState(0);
-  const [userDetails, setUserDetails] = useState({
-    fullName: '',
-    education: '',
-    typingTestText: ''
-  });
-  const typingStartTime = useRef(null);
-  const typingEndTime = useRef(null);
-
-  const sampleText = `Please type this paragraph exactly as shown. This typing test will help us understand your typing speed and accuracy. We use this information to ensure the integrity of the examination process. Type naturally as you would during the exam.`;
-
-  const calculateTypingSpeed = () => {
-    const timeInMinutes = (typingEndTime.current - typingStartTime.current) / 60000; // Convert to minutes
-    const wordsTyped = userDetails.typingTestText.trim().split(/\s+/).length;
-    const wpm = Math.round(wordsTyped / timeInMinutes);
-    return wpm;
-  };
-
-  const handleTypingStart = () => {
-    if (!typingStartTime.current) {
-      typingStartTime.current = Date.now();
-    }
-  };
-
-  const handleTypingTestSubmit = async () => {
-    try {
-      typingEndTime.current = Date.now();
-      const wpm = calculateTypingSpeed();
-      setTypingSpeed(wpm);
-
-      // Make sure we have an exam session ID
-      if (!examSessionId) {
-        throw new Error('No exam session ID found');
-      }
-
-      // First check if the exam session exists
-      const { data: existingSession, error: checkError } = await supabase
-        .from('exam_sessions')
-        .select('id')
-        .eq('id', examSessionId)
-        .single();
-
-      if (checkError || !existingSession) {
-        throw new Error('Could not find exam session');
-      }
-
-      // Then update the session with typing speed and user details
-      const { error: updateError } = await supabase
-        .from('exam_sessions')
-        .update({ 
-          typing_speed_wpm: wpm,
-          user_details: {
-            fullName: userDetails.fullName,
-            education: userDetails.education,
-            typingTestCompleted: true,
-            typingSpeed: wpm,
-            typingTestText: userDetails.typingTestText,
-            testStartTime: typingStartTime.current,
-            testEndTime: typingEndTime.current
-          }
-        })
-        .eq('id', examSessionId);
-
-      if (updateError) {
-        throw new Error(`Failed to update exam session: ${updateError.message}`);
-      }
-
-      // Log the typing test completion
-      const { error: logError } = await supabase
-        .from('behavior_logs')
-        .insert({
-          exam_session_id: examSessionId,
-          behavior_type: 'typing_test_completed',
-          behavior_data: {
-            wpm,
-            textLength: userDetails.typingTestText.length,
-            duration: (typingEndTime.current - typingStartTime.current) / 1000,
-            timestamp: new Date().toISOString()
-          },
-          risk_contribution: 0,
-          created_at: new Date().toISOString()
-        });
-
-      if (logError) {
-        console.error('Error logging typing test completion:', logError.message);
-      }
-
-      setTypingTestCompleted(true);
-      setShowTypingTest(false);
-    } catch (error) {
-      console.error('Error in typing test submission:', error.message);
-      alert(`Failed to save typing test results: ${error.message}. Please try again or contact support if the issue persists.`);
-    }
-  };
-
-  // Add state for typing test session
-  const [typingTestStarted, setTypingTestStarted] = useState(false);
-
-  // Function to start typing test and create exam session
-  const startTypingTest = async () => {
-    try {
-      if (!user?.id) {
-        throw new Error("User not authenticated");
-      }
-
-      // Get count of user's previous exams to create unique exam ID
-      const { data: previousExams, error: countError } = await supabase
-        .from("exam_sessions")
-        .select("id")
-        .eq("user_id", user.id);
-
-      if (countError) {
-        throw new Error("Failed to create exam session");
-      }
-
-      const examNumber = (previousExams?.length || 0) + 1;
-      const examId = `EXAM${examNumber}_${user.id}`;
-
-      const examData = {
-        user_id: user.id,
-        exam_id: examId,
-        risk_score: 0,
-        warnings: 0,
-        duration: 7200,
-        completed: false,
-        terminated: false,
-        monitoring_level: 'STANDARD',
-        created_at: new Date().toISOString()
-      };
-
-      // Create a new exam session
-      const { data: session, error: sessionError } = await supabase
-        .from("exam_sessions")
-        .insert(examData)
-        .select()
-        .single();
-
-      if (sessionError) {
-        throw new Error(sessionError.message || "Failed to create exam session");
-      }
-
-      setExamSessionId(session.id);
-      setTypingTestStarted(true);
-      typingStartTime.current = Date.now(); // Start timing when session is created
-    } catch (error) {
-      console.error("Error starting typing test:", error);
-      alert(`Failed to start typing test: ${error.message}. Please try again or contact support if the issue persists.`);
-    }
-  };
+  const [showMonitoringMessage, setShowMonitoringMessage] = useState(false);
+  const [monitoringMessage, setMonitoringMessage] = useState("");
+  const monitoringTimeoutRef = useRef(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -432,19 +252,87 @@ function isValid(s) {
             setShowWarning(true);
           }
         }
-      }
-    } catch (error) {
+            }
+          } catch (error) {
       console.error('Error in updateRiskLevel:', error);
     }
   };
 
-  // Add copy-paste prevention function
-  const preventCopyPaste = (e) => {
+  // Prevent right-click
+  const preventRightClick = (e) => {
     e.preventDefault();
-    setWarningMessage("⚠️ Warning: Copy and paste are not allowed during the exam.");
+    setWarningMessage("⚠️ Warning: Right-click menu is disabled during the exam.");
     setShowWarning(true);
-    setCopyPasteAttempts(prev => prev + 1);
+    return false;
   };
+
+  // Prevent keyboard shortcuts
+  const handleKeyDown = async (e) => {
+    // Prevent Alt+Tab
+    if (e.altKey && e.key === 'Tab') {
+      e.preventDefault();
+      if (riskLevel === "MEDIUM") {
+        await updateWarningCount(
+          "⚠️ Warning: Keyboard shortcuts for switching tabs are not allowed during the exam.",
+          "Tab switch attempt"
+        );
+        await assessBehavior("Tab switch attempt");
+      }
+      return false;
+    }
+
+    // Prevent Ctrl+Tab and Ctrl+Shift+Tab
+    if (e.ctrlKey && (e.key === 'Tab' || (e.shiftKey && e.key === 'Tab'))) {
+      e.preventDefault();
+      if (riskLevel === "MEDIUM") {
+        await updateWarningCount(
+          "⚠️ Warning: Keyboard shortcuts for switching tabs are not allowed during the exam.",
+          "Tab switch attempt"
+        );
+        await assessBehavior("Tab switch attempt");
+      }
+      return false;
+    }
+
+    // Prevent Windows key
+    if (e.key === 'Meta' || e.key === 'OS') {
+      e.preventDefault();
+      if (riskLevel === "MEDIUM") {
+        await updateWarningCount(
+          "⚠️ Warning: Windows key is not allowed during the exam.",
+          "System key attempt"
+        );
+        await assessBehavior("System key attempt");
+      }
+      return false;
+    }
+
+    // Prevent Alt+F4
+    if (e.altKey && e.key === 'F4') {
+      e.preventDefault();
+      if (riskLevel === "MEDIUM") {
+        await updateWarningCount(
+          "⚠️ Warning: Keyboard shortcuts for closing the window are not allowed during the exam.",
+          "Window close attempt"
+        );
+        await assessBehavior("Window close attempt");
+      }
+      return false;
+    }
+  };
+
+  // Effect to handle copy-paste prevention
+  useEffect(() => {
+    if (examStarted) {
+      document.addEventListener('contextmenu', preventRightClick);
+      document.addEventListener('keydown', handleKeyDown);
+
+      return () => {
+        document.removeEventListener('contextmenu', preventRightClick);
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [examStarted]);
 
   // Behavior monitoring effect
   useEffect(() => {
@@ -465,70 +353,6 @@ function isValid(s) {
     const handleKeyPress = (e) => {
       setKeystrokes(prev => [...prev.slice(-50), Date.now()]);
       setLastActivity(Date.now());
-    };
-
-    const handleKeyDown = async (e) => {
-      // Prevent Alt+Tab
-      if (e.altKey && e.key === 'Tab') {
-        e.preventDefault();
-        if (riskLevel === "MEDIUM") {
-          await updateWarningCount(
-            "⚠️ Warning: Keyboard shortcuts for switching tabs are not allowed during the exam.",
-            "Tab switch attempt"
-          );
-          await assessBehavior("Tab switch attempt");
-        }
-        return false;
-      }
-
-      // Prevent Ctrl+Tab and Ctrl+Shift+Tab
-      if (e.ctrlKey && (e.key === 'Tab' || (e.shiftKey && e.key === 'Tab'))) {
-        e.preventDefault();
-        if (riskLevel === "MEDIUM") {
-          await updateWarningCount(
-            "⚠️ Warning: Keyboard shortcuts for switching tabs are not allowed during the exam.",
-            "Tab switch attempt"
-          );
-          await assessBehavior("Tab switch attempt");
-        }
-        return false;
-      }
-
-      // Prevent Windows key
-      if (e.key === 'Meta' || e.key === 'OS') {
-        e.preventDefault();
-        if (riskLevel === "MEDIUM") {
-          await updateWarningCount(
-            "⚠️ Warning: Windows key is not allowed during the exam.",
-            "System key attempt"
-          );
-          await assessBehavior("System key attempt");
-        }
-        return false;
-      }
-
-      // Prevent Alt+F4
-      if (e.altKey && e.key === 'F4') {
-        e.preventDefault();
-        if (riskLevel === "MEDIUM") {
-          await updateWarningCount(
-            "⚠️ Warning: Keyboard shortcuts for closing the window are not allowed during the exam.",
-            "Window close attempt"
-          );
-          await assessBehavior("Window close attempt");
-        }
-        return false;
-      }
-    };
-
-    const handleContextMenu = async (e) => {
-      e.preventDefault();
-      await updateWarningCount(
-        "⚠️ Warning: Right-clicking is not allowed during the exam.",
-        "Right-click attempt"
-      );
-      await assessBehavior("Right-click attempt");
-      return false;
     };
 
     const handleVisibilityChange = async () => {
@@ -612,13 +436,11 @@ function isValid(s) {
     // Periodic behavior assessment
     assessmentInterval = setInterval(async () => {
       await assessBehavior("periodic_check");
-    }, 10000); // Every 10 seconds
+    }, 30000); // Every 30 seconds
 
     // Add event listeners
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("keypress", handleKeyPress);
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     document.addEventListener("mouseleave", handleMouseLeave);
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -629,12 +451,15 @@ function isValid(s) {
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("keypress", handleKeyPress);
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       document.removeEventListener("mouseleave", handleMouseLeave);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       clearInterval(assessmentInterval);
+      
+      // Clear monitoring message timeout
+      if (monitoringTimeoutRef.current) {
+        clearTimeout(monitoringTimeoutRef.current);
+      }
     };
   }, [examStarted, examSessionId, riskLevel, tabSwitches]);
 
@@ -752,8 +577,8 @@ function isValid(s) {
 
       if (sessionError || !session) {
         console.error('Error fetching session for cooldown:', sessionError);
-        return;
-      }
+      return;
+    }
 
       const currentTime = Date.now();
       const fiveMinutesAgo = currentTime - (5 * 60 * 1000);
@@ -803,19 +628,66 @@ function isValid(s) {
     if (!examSessionId) return;
 
     try {
-      // Calculate risk contributions
-      const riskContributions = {
-        tabSwitches: Math.min(1, tabSwitches / 5) * 0.3,
-        mouseLeave: Math.min(1, mouseLeaveCount / 3) * 0.2,
-        copyPaste: Math.min(1, copyPasteAttempts / 2) * 0.3,
-        inactivity: Math.min(1, (Date.now() - lastActivity) / 30000) * 0.2
-      };
+      // Get current session data first
+      const { data: session, error: sessionError } = await supabase
+        .from('exam_sessions')
+        .select('risk_score, warnings')
+        .eq('id', examSessionId)
+        .single();
 
-      const totalRiskContribution = Object.values(riskContributions).reduce((sum, val) => sum + val, 0);
+      if (sessionError) {
+        console.error('Error fetching current session:', sessionError);
+        return;
+      }
 
-      // Record behavior log with proper behavior_type
+      // Handle periodic check differently
+      if (trigger === 'periodic_check') {
+        // Show monitoring message in green
+        setMonitoringMessage("✓ Exam monitoring active - session secure");
+        setShowMonitoringMessage(true);
+
+        // Clear any existing timeout
+        if (monitoringTimeoutRef.current) {
+          clearTimeout(monitoringTimeoutRef.current);
+        }
+
+        // Set new timeout to hide message
+        monitoringTimeoutRef.current = setTimeout(() => {
+          setShowMonitoringMessage(false);
+        }, 3000);
+
+        // Record behavior log without increasing warning count
+        const { error: behaviorError } = await supabase
+          .from('behavior_logs')
+          .insert({
+            exam_session_id: examSessionId,
+            behavior_type: 'periodic_check',
+            behavior_data: {
+              status: 'normal',
+              timestamp: new Date().toISOString()
+            },
+            risk_contribution: 0,
+            created_at: new Date().toISOString()
+          });
+
+        if (behaviorError) {
+          console.error('Error recording behavior log:', behaviorError.message);
+        }
+        return;
+      }
+
+      // For actual violations, continue with existing logic
+      const currentWarnings = session?.warnings || 0;
+      const newWarningCount = currentWarnings + 1;
+      const newRiskScore = Math.min(100, (session?.risk_score || 0) + 10);
+
+      // Record behavior log
       const behaviorType = typeof behaviors === 'string' ? behaviors : trigger;
-      const behaviorData = typeof behaviors === 'object' ? behaviors : riskContributions;
+      const behaviorData = typeof behaviors === 'object' ? behaviors : {
+        warningCount: newWarningCount,
+        riskScore: newRiskScore,
+        trigger: trigger
+      };
 
       const { error: behaviorError } = await supabase
         .from('behavior_logs')
@@ -823,7 +695,7 @@ function isValid(s) {
           exam_session_id: examSessionId,
           behavior_type: behaviorType,
           behavior_data: behaviorData,
-          risk_contribution: totalRiskContribution,
+          risk_contribution: 0.1, // 10% contribution per warning
           created_at: new Date().toISOString()
         });
 
@@ -831,93 +703,77 @@ function isValid(s) {
         console.error('Error recording behavior log:', behaviorError.message);
       }
 
-      // Record violation if risk is high
-      if (totalRiskContribution > 0.5) {
-        // Get current session data
-        const { data: session, error: sessionError } = await supabase
-          .from('exam_sessions')
-          .select('risk_score, warnings')
-          .eq('id', examSessionId)
-          .single();
-
-        if (sessionError) {
-          console.error('Error fetching current session:', sessionError);
-          return;
-        }
-
-        // Add 10 points to the risk score and increase warning count
-        const newRiskScore = Math.min(100, (session.risk_score || 0) + 10);
-        const newWarningCount = (session.warnings || 0) + 1;
-        
-        // Create violation data object
+      // Create violation record
         const violationData = {
           exam_session_id: examSessionId,
           user_id: user.id,
-          reason: typeof behaviors === 'string' ? behaviors : 'Suspicious behavior detected',
-          risk_score: 10,
-          details: {
-            ...behaviorData,
-            warningCount: newWarningCount
-          },
+        reason: typeof behaviors === 'string' ? behaviors : 'Suspicious behavior detected',
+        risk_score: 10, // Each violation adds 10 points
+        details: {
+          warningCount: newWarningCount,
+          riskScore: newRiskScore,
+          trigger: behaviorType,
+          timestamp: new Date().toISOString()
+        },
           created_at: new Date().toISOString()
         };
 
-        // Insert violation
         const { error: violationError } = await supabase
           .from('exam_violations')
           .insert([violationData]);
 
         if (violationError) {
-          console.error('Error recording violation:', violationError.message);
-          return;
-        }
-
-        // Update exam session with new risk score and warning count
-        const { error: updateError } = await supabase
-          .from('exam_sessions')
-          .update({ 
-            risk_score: newRiskScore,
-            warnings: newWarningCount,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', examSessionId);
-
-        if (updateError) {
-          console.error('Error updating risk score and warnings:', updateError);
-          return;
-        }
-
-        setWarningCount(newWarningCount);
-        setLastViolationTime(Date.now());
-
-        // Handle warning count thresholds
-        if (newWarningCount >= 8) {
-          // Terminate exam if warnings >= 8
-          await handleHighRiskTermination("Excessive warnings - automatic termination");
-        } else if (newWarningCount >= 5) {
-          // Force fullscreen if warnings >= 5
-          try {
-            await requestFullScreen();
-            setWarningMessage("⚠️ Warning: Due to multiple violations, fullscreen mode is now enforced.");
-            setShowWarning(true);
-          } catch (error) {
-            console.error('Failed to enter fullscreen:', error);
-            setWarningMessage("⚠️ Warning: Please allow fullscreen mode to continue the exam.");
-            setShowWarning(true);
-          }
-        }
-
-        // Show appropriate warning message
-        let warningMsg = `⚠️ Warning ${newWarningCount}/8: Suspicious behavior detected`;
-        if (newWarningCount >= 5) {
-          warningMsg += " - Fullscreen mode enforced";
-        }
-        if (newWarningCount === 7) {
-          warningMsg += " - FINAL WARNING before termination";
-        }
-        setWarningMessage(warningMsg);
-        setShowWarning(true);
+        console.error('Error recording violation:', violationError);
+        return;
       }
+
+      // Update exam session with new risk score and warning count
+      const { error: updateError } = await supabase
+        .from('exam_sessions')
+        .update({ 
+          risk_score: newRiskScore,
+          warnings: newWarningCount,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', examSessionId);
+
+      if (updateError) {
+        console.error('Error updating risk score and warnings:', updateError);
+        return;
+      }
+
+      // Update local state
+      setWarningCount(newWarningCount);
+      setLastViolationTime(Date.now());
+
+      // Handle warning count thresholds
+      if (newWarningCount >= 8) {
+        // Terminate exam if warnings >= 8
+        await handleHighRiskTermination("Excessive warnings - automatic termination");
+      } else if (newWarningCount >= 5) {
+        // Force fullscreen if warnings >= 5
+        try {
+          await requestFullScreen();
+          setWarningMessage("⚠️ Warning: Due to multiple violations, fullscreen mode is now enforced.");
+          setShowWarning(true);
+        } catch (error) {
+          console.error('Failed to enter fullscreen:', error);
+          setWarningMessage("⚠️ Warning: Please allow fullscreen mode to continue the exam.");
+          setShowWarning(true);
+        }
+      }
+
+      // Show appropriate warning message
+      let warningMsg = `⚠️ Warning ${newWarningCount}/8: ${behaviorType}`;
+      if (newWarningCount >= 5) {
+        warningMsg += " - Fullscreen mode enforced";
+      }
+      if (newWarningCount === 7) {
+        warningMsg += " - FINAL WARNING before termination";
+      }
+      setWarningMessage(warningMsg);
+      setShowWarning(true);
+
     } catch (error) {
       console.error('Error in assessBehavior:', error.message);
       if (error.details) {
@@ -926,21 +782,65 @@ function isValid(s) {
     }
   };
 
-  // Update startExam function to add initial copy-paste restrictions
-  const startExam = async () => {
-    try {
-      console.log("Starting exam for user:", user.id);
+  // Add new state for monitor detection
+  const [hasExternalDisplay, setHasExternalDisplay] = useState(false);
+
+  // Add monitor detection function
+  const checkForExternalDisplays = () => {
+    if (typeof window !== 'undefined' && window.screen) {
+      // Check if window.screen.isExtended is available (modern browsers)
+      if ('isExtended' in window.screen) {
+        return window.screen.isExtended;
+      }
       
-      // Verify user is authenticated
-      if (!user?.id) {
-        console.error("No user ID found");
-        throw new Error("User not authenticated");
+      // Fallback: Check for discrepancy between window.screen and window.innerWidth
+      // This can indicate presence of external displays
+      const heightDiff = Math.abs(window.screen.height - window.innerHeight);
+      const widthDiff = Math.abs(window.screen.width - window.innerWidth);
+      return heightDiff > 100 || widthDiff > 100;
+    }
+    return false;
+  };
+
+  // Add monitor detection effect
+  useEffect(() => {
+    if (examStarted) {
+      const detectMonitor = () => {
+        const hasExternal = checkForExternalDisplays();
+        setHasExternalDisplay(hasExternal);
+        
+        if (hasExternal) {
+          // If external display detected during exam, terminate it
+          handleHighRiskTermination("External display detected during exam");
+        }
+      };
+
+      // Check immediately
+      detectMonitor();
+
+      // Check when window is resized (which happens when displays are changed)
+      window.addEventListener('resize', detectMonitor);
+
+      // Modern browsers: Listen for screen configuration changes
+      if (window.screen?.addEventListener) {
+        window.screen.addEventListener('change', detectMonitor);
       }
 
-      // Add copy-paste restrictions
-      document.addEventListener('copy', preventCopyPaste);
-      document.addEventListener('paste', preventCopyPaste);
-      document.addEventListener('cut', preventCopyPaste);
+      return () => {
+        window.removeEventListener('resize', detectMonitor);
+        if (window.screen?.removeEventListener) {
+          window.screen.removeEventListener('change', detectMonitor);
+        }
+      };
+    }
+  }, [examStarted]);
+
+  // Modify startExam function to check for external displays
+  const startExam = async () => {
+    try {
+      if (!user?.id) {
+        throw new Error("User not authenticated");
+      }
 
       // Get count of user's previous exams to create unique exam ID
       const { data: previousExams, error: countError } = await supabase
@@ -1004,11 +904,6 @@ function isValid(s) {
     }
 
     try {
-      // Remove copy-paste restrictions
-      document.removeEventListener('copy', preventCopyPaste);
-      document.removeEventListener('paste', preventCopyPaste);
-      document.removeEventListener('cut', preventCopyPaste);
-
       console.log("Starting exam end process for session:", examSessionId);
       
       // First verify the exam session exists and belongs to the user
@@ -1274,112 +1169,60 @@ function isValid(s) {
       <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
         <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:60px_60px]" />
         <div className="relative min-h-screen px-6 py-12">
-          {!typingTestStarted ? (
-            <motion.div
-              className="max-w-4xl mx-auto text-center"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
-            >
-              <h1 className="text-4xl font-black text-white mb-6">Welcome to the Exam</h1>
-              <p className="text-blue-50/90 mb-8">
-                Before starting the exam, you'll need to complete a quick typing test to help us understand your typing patterns.
-              </p>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={startTypingTest}
-                className="bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300"
-              >
-                Start Typing Test
-              </motion.button>
-            </motion.div>
-          ) : showTypingTest ? (
-            <motion.div
-              className="max-w-4xl mx-auto"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
-            >
-              <h1 className="text-4xl font-black text-white mb-6 text-center">Typing Test</h1>
-              <p className="text-blue-50/90 mb-8 text-center">
-                Please complete this short typing test. Type naturally - you don't need to match the sample text exactly.
-              </p>
-
-              <div className="space-y-6 bg-white/10 backdrop-blur-lg rounded-xl p-8">
-                <div>
-                  <label className="block text-white text-sm font-medium mb-2">Full Name</label>
-                  <input
-                    type="text"
-                    value={userDetails.fullName}
-                    onChange={(e) => setUserDetails(prev => ({ ...prev, fullName: e.target.value }))}
-                    className="w-full bg-white/5 text-white border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter your full name"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-white text-sm font-medium mb-2">Education</label>
-                  <input
-                    type="text"
-                    value={userDetails.education}
-                    onChange={(e) => setUserDetails(prev => ({ ...prev, education: e.target.value }))}
-                    className="w-full bg-white/5 text-white border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter your education details"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-white text-sm font-medium mb-2">Typing Test</label>
-                  <div className="bg-white/5 rounded-lg p-4 mb-4">
-                    <p className="text-white/90 font-mono">{sampleText}</p>
-                  </div>
-                  <textarea
-                    value={userDetails.typingTestText}
-                    onChange={(e) => setUserDetails(prev => ({ ...prev, typingTestText: e.target.value }))}
-                    onKeyDown={handleTypingStart}
-                    className="w-full h-32 bg-white/5 text-white border border-white/10 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                    placeholder="Start typing anything here to demonstrate your typing speed..."
-                  />
-                </div>
-
-                <button
-                  onClick={handleTypingTestSubmit}
-                  disabled={!userDetails.fullName || !userDetails.education || userDetails.typingTestText.length < 20}
-                  className="w-full bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Submit Typing Test
-                </button>
+          <motion.div
+            className="max-w-4xl mx-auto text-center"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+          >
+            <h1 className="text-4xl font-black text-white mb-6">Welcome to the Exam</h1>
+            {hasExternalDisplay ? (
+              <div className="bg-red-500/90 text-white p-4 rounded-xl mb-8">
+                ⚠️ External display detected. Please disconnect all external monitors before proceeding.
               </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              className="max-w-4xl mx-auto text-center"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8 }}
+            ) : (
+              <>
+                <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 mb-8">
+                  <h2 className="text-2xl font-bold text-white mb-4">Important Instructions</h2>
+                  <ul className="text-left text-blue-50/90 space-y-3">
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-400">✓</span>
+                      <span>Ensure you are using a single display. External monitors are not allowed.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-400">✓</span>
+                      <span>Keep the exam window in focus. Switching tabs or windows will be flagged.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-green-400">✓</span>
+                      <span>The exam will automatically terminate after 8 warnings or if risk level becomes too high.</span>
+                    </li>
+                  </ul>
+                </div>
+            <p className="text-blue-50/90 mb-8">
+                  Please read all instructions carefully before starting the exam.
+            </p>
+              </>
+            )}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={startExam}
+              disabled={hasExternalDisplay}
+              className={`bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg transition-colors duration-300 ${
+                hasExternalDisplay ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-600'
+              }`}
             >
-              <h1 className="text-4xl font-black text-white mb-6">Ready to Begin?</h1>
-              <p className="text-blue-50/90 mb-8">
-                The exam will begin when you click the button below. Please ensure you have read all instructions carefully.
-              </p>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={startExam}
-                className="bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg hover:bg-green-600 transition-colors duration-300"
-              >
-                Begin Exam
-              </motion.button>
-            </motion.div>
-          )}
+              Start Exam
+            </motion.button>
+          </motion.div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 text-white p-8">
       {/* Header */}
       <div className="px-6 py-4">
         <div className="flex items-center justify-between">
@@ -1397,22 +1240,20 @@ function isValid(s) {
         </div>
       </div>
 
-      {/* Warning Messages */}
+      {/* Add monitoring message display */}
+      {showMonitoringMessage && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center">
+          <span className="mr-2">🔒</span>
+          {monitoringMessage}
+        </div>
+      )}
+
+      {/* Existing warning message display */}
       {showWarning && (
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="fixed top-4 right-4 z-50"
-        >
-          <div className="bg-red-500 backdrop-blur-lg rounded-lg p-4 shadow-lg">
-            <div className="flex items-center gap-3 text-white">
-              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <p className="text-sm font-medium">{warningMessage}</p>
-            </div>
-          </div>
-        </motion.div>
+        <div className="fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center">
+          <span className="mr-2">⚠️</span>
+          {warningMessage}
+        </div>
       )}
 
       {/* AI Warning Message */}
@@ -1451,6 +1292,36 @@ function isValid(s) {
                     {option}
                   </button>
                 ))}
+              </div>
+            </div>
+          ) : questions[currentQuestion].type === "theory" ? (
+            <div className="max-w-4xl mx-auto p-6">
+              <h2 className="text-xl font-bold text-white mb-6">
+                {questions[currentQuestion].question}
+              </h2>
+              <div className="mt-6">
+                <textarea
+                  value={codeAnswers[questions[currentQuestion].id] || ""}
+                  onChange={(e) => handleCodeChange(questions[currentQuestion].id, e.target.value)}
+                  className="w-full h-64 bg-white/5 text-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono text-sm"
+                  placeholder="Type your answer here..."
+                />
+                <div className="mt-4 bg-white/5 rounded-xl p-4">
+                  <h3 className="text-lg font-semibold text-white mb-2">Answer Guidelines:</h3>
+                  <div className="text-blue-50/90 space-y-2">
+                    {questions[currentQuestion].expectedAnswer.split('\n').map((line, index) => (
+                      <p key={index}>{line}</p>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={handleCodeSubmit}
+                    className="bg-green-500 text-white rounded-xl px-6 py-2 font-medium hover:bg-green-600 transition-colors"
+                  >
+                    {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
+                  </button>
+                </div>
               </div>
             </div>
           ) : questions[currentQuestion].type === "coding" ? (
