@@ -1,13 +1,15 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+
+import React, { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { motion } from "framer-motion";
 import { riskAssessmentService } from "@/services/RiskAssessmentService";
 import { interventionService } from "@/services/InterventionService";
 import { aiDetectionService } from "@/services/AIDetectionService";
+import TypingTest from '@/components/TypingTest';
 
-export default function ExamPage() {
+const ExamPage = () => {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [examStarted, setExamStarted] = useState(false);
@@ -128,6 +130,42 @@ function isValid(s) {
   const [showMonitoringMessage, setShowMonitoringMessage] = useState(false);
   const [monitoringMessage, setMonitoringMessage] = useState("");
   const monitoringTimeoutRef = useRef(null);
+
+  const [baselineWPM, setBaselineWPM] = useState(null);
+  const [typingTestComplete, setTypingTestComplete] = useState(false);
+  const [currentWPM, setCurrentWPM] = useState(0);
+  const [typingStartTime, setTypingStartTime] = useState(null);
+  const [typingBuffer, setTypingBuffer] = useState([]);
+  const WPM_CHECK_INTERVAL = 10000; // Check WPM every 10 seconds
+  const WPM_THRESHOLD = 25; // Maximum allowed WPM difference in percentage
+
+  // Handle typing test completion
+  const handleTypingTestComplete = async (results) => {
+    setBaselineWPM(results.averageWPM);
+    setTypingTestComplete(true);
+    // Store typing test results in exam session
+    if (examSessionId) {
+      try {
+        const { error } = await supabase
+          .from('exam_sessions')
+          .update({
+            typing_test_results: {
+              ...results,
+              baseline_wpm: results.averageWPM,
+              timestamp: new Date().toISOString()
+            },
+            baseline_wpm: results.averageWPM
+          })
+          .eq('id', examSessionId);
+
+        if (error) {
+          console.error('Error storing typing test results:', error);
+        }
+      } catch (error) {
+        console.error('Error in handleTypingTestComplete:', error);
+      }
+    }
+  };
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -1091,79 +1129,299 @@ function isValid(s) {
     }
   };
 
-  // Update the MCQ option click handler
+  // Update the MCQ option click handler to calculate final WPM before moving on
   const handleOptionClick = async (option) => {
+    // Calculate final WPM for current question if there's text and timing started
+    if (typingStartTime) {
+      const endTime = Date.now();
+      const timeInMinutes = (endTime - typingStartTime) / 60000;
+      const answer = codeAnswers[questions[currentQuestion].id] || '';
+      const words = answer.trim().split(/\s+/).length;
+      const finalWPM = timeInMinutes > 0 ? Math.round(words / timeInMinutes) : 0;
+
+      if (finalWPM > 0) {
+        const { data: currentSession } = await supabase
+          .from('exam_sessions')
+          .select('typing_test_results')
+          .eq('id', examSessionId)
+          .single();
+
+        if (currentSession) {
+          const variationPercentage = baselineWPM > 0 
+            ? Math.abs(((finalWPM - baselineWPM) / baselineWPM) * 100)
+            : 0;
+
+          const updatedResults = {
+            ...currentSession.typing_test_results,
+            variations: [
+              ...(currentSession.typing_test_results?.variations || [])
+                .filter(v => v.questionId !== currentQuestion + 1),
+              {
+                questionId: currentQuestion + 1,
+                wpm: finalWPM,
+                timestamp: endTime,
+                variationPercentage: parseFloat(variationPercentage.toFixed(1))
+              }
+            ]
+          };
+
+          await supabase
+            .from('exam_sessions')
+            .update({
+              typing_test_results: updatedResults
+            })
+            .eq('id', examSessionId);
+        }
+      }
+    }
+
+    // Reset typing measurement for next question
+    setTypingStartTime(null);
+    setTypingBuffer([]);
+
+    // Handle question navigation
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(prev => prev + 1);
     } else {
-      // This is the last question, show confirmation dialog
       if (window.confirm("Are you sure you want to submit your exam?")) {
         await submitExam();
       }
     }
   };
 
-  // Add code submission handler
-  const handleCodeSubmit = async () => {
-    if (currentQuestion < questions.length - 1) {
-      setCurrentQuestion(prev => prev + 1);
-    } else {
-      if (window.confirm("Are you sure you want to submit your exam?")) {
-        await submitExam();
-      }
+  // Add WPM monitoring for theory and coding questions
+  const handleAnswerTyping = async (e, questionId) => {
+    const now = Date.now();
+    const newText = e.target.value;
+    
+    // Update the answer text first
+    handleCodeChange(questionId, newText);
+    
+    // Start timing if this is the first keystroke
+    if (!typingStartTime) {
+      setTypingStartTime(now);
+      setTypingBuffer([]);
     }
-  };
 
-  // Add the handleHighRiskTermination function
-  const handleHighRiskTermination = async (reason) => {
-    try {
-      // Update exam session as terminated
-      const { error: terminationError } = await supabase
+    // Calculate WPM based on total time since first keystroke
+    const timeInMinutes = (now - typingStartTime) / 60000;
+    const words = newText.trim().split(/\s+/).length;
+    const currentWPM = timeInMinutes > 0 ? Math.round(words / timeInMinutes) : 0;
+    
+    setCurrentWPM(currentWPM);
+
+    // Store the WPM for this question
+    if (examSessionId && currentWPM > 0) {
+      const { data: currentSession, error: sessionError } = await supabase
         .from('exam_sessions')
-        .update({
-          terminated: true,
-          completed: true,
-          risk_score: 100,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', examSessionId);
+        .select('typing_test_results')
+        .eq('id', examSessionId)
+        .single();
 
-      if (terminationError) {
-        console.error('Error terminating exam session:', terminationError);
-        return;
+      if (!sessionError && currentSession) {
+        const variationPercentage = baselineWPM > 0 
+          ? Math.abs(((currentWPM - baselineWPM) / baselineWPM) * 100)
+          : 0;
+        
+        const updatedResults = {
+          ...currentSession.typing_test_results,
+          variations: [
+            // Filter out previous entries for this question
+            ...(currentSession.typing_test_results?.variations || [])
+              .filter(v => v.questionId !== currentQuestion + 1),
+            {
+              questionId: currentQuestion + 1,
+              wpm: currentWPM,
+              timestamp: now,
+              variationPercentage: parseFloat(variationPercentage.toFixed(1))
+            }
+          ]
+        };
+
+        await supabase
+          .from('exam_sessions')
+          .update({
+            typing_test_results: updatedResults
+          })
+          .eq('id', examSessionId);
       }
-
-      // Record termination violation
-      const { error: violationError } = await supabase
-        .from('exam_violations')
-        .insert([{
-          exam_session_id: examSessionId,
-          user_id: user.id,
-          reason: `Exam terminated - ${reason}`,
-          risk_score: 100,
-          details: {
-            terminationTime: new Date().toISOString(),
-            terminationReason: reason
-          },
-          created_at: new Date().toISOString()
-        }]);
-
-      if (violationError) {
-        console.error('Error recording termination violation:', violationError);
-      }
-
-      // Show termination message and redirect
-      setWarningMessage("⚠️ Critical: Your exam has been terminated due to high risk behavior.");
-      setShowWarning(true);
-      
-      // Redirect to results page after a short delay
-      setTimeout(() => {
-        router.push("/candidate/results");
-      }, 3000);
-    } catch (error) {
-      console.error('Error in handleHighRiskTermination:', error);
     }
   };
+
+  // Add final WPM calculation when moving to next question
+  const handleCodeSubmit = async () => {
+    // Calculate final WPM for current question if there's text
+    const answer = codeAnswers[questions[currentQuestion].id];
+    if (answer && typingStartTime) {
+      const endTime = Date.now();
+      const timeInMinutes = (endTime - typingStartTime) / 60000;
+      const words = answer.trim().split(/\s+/).length;
+      const finalWPM = timeInMinutes > 0 ? Math.round(words / timeInMinutes) : 0;
+
+      if (finalWPM > 0) {
+        const { data: currentSession } = await supabase
+          .from('exam_sessions')
+          .select('typing_test_results')
+          .eq('id', examSessionId)
+          .single();
+
+        if (currentSession) {
+          const variationPercentage = baselineWPM > 0 
+            ? Math.abs(((finalWPM - baselineWPM) / baselineWPM) * 100)
+            : 0;
+
+          const updatedResults = {
+            ...currentSession.typing_test_results,
+            variations: [
+              ...(currentSession.typing_test_results?.variations || [])
+                .filter(v => v.questionId !== currentQuestion + 1),
+              {
+                questionId: currentQuestion + 1,
+                wpm: finalWPM,
+                timestamp: endTime,
+                variationPercentage: parseFloat(variationPercentage.toFixed(1))
+              }
+            ]
+          };
+
+          await supabase
+            .from('exam_sessions')
+            .update({
+              typing_test_results: updatedResults
+            })
+            .eq('id', examSessionId);
+        }
+      }
+    }
+
+    // Reset typing measurement for next question
+    setTypingStartTime(null);
+    setTypingBuffer([]);
+
+    // Handle question navigation
+    if (currentQuestion < questions.length - 1) {
+      setCurrentQuestion(prev => prev + 1);
+    } else {
+      if (window.confirm("Are you sure you want to submit your exam?")) {
+        await submitExam();
+      }
+    }
+  };
+
+  // Update the theory question textarea
+  const renderTheoryQuestion = () => (
+    <div className="max-w-4xl mx-auto p-6">
+      <h2 className="text-xl font-bold text-white mb-6">
+        {questions[currentQuestion].question}
+      </h2>
+      <div className="mt-6">
+        <textarea
+          value={codeAnswers[questions[currentQuestion].id] || ""}
+          onChange={(e) => handleAnswerTyping(e, questions[currentQuestion].id)}
+          className="w-full h-64 bg-white/5 text-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono text-sm"
+          placeholder="Type your answer here..."
+        />
+        <div className="mt-4 bg-white/5 rounded-xl p-4">
+          <h3 className="text-lg font-semibold text-white mb-2">Answer Guidelines:</h3>
+          <div className="text-blue-50/90 space-y-2">
+            {questions[currentQuestion].expectedAnswer.split('\n').map((line, index) => (
+              <p key={index}>{line}</p>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={handleCodeSubmit}
+            className="bg-green-500 text-white rounded-xl px-6 py-2 font-medium hover:bg-green-600 transition-colors"
+          >
+            {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Update the coding question textarea
+  const renderCodingQuestion = () => (
+    <div className="flex h-full gap-6">
+      {/* Left side - Question Details */}
+      <div className="w-[45%] overflow-hidden rounded-xl bg-[#1e1e1e]/50">
+        <div className="h-full overflow-y-auto">
+          <div className="p-6">
+            <h2 className="text-xl font-bold text-white mb-6">
+              Question {currentQuestion + 1}
+            </h2>
+            <div className="prose prose-invert max-w-none">
+              <h3 className="text-lg font-semibold text-white mb-4">
+                {questions[currentQuestion].question.split('\n')[0]}
+              </h3>
+              <div className="text-white/90 whitespace-pre-wrap font-mono text-sm leading-relaxed">
+                {questions[currentQuestion].question.split('\n').slice(1).join('\n')}
+              </div>
+            </div>
+            <div className="mt-8">
+              <h4 className="text-white font-medium mb-4">Example Test Cases:</h4>
+              {questions[currentQuestion].testCases.map((testCase, index) => (
+                <div key={index} className="mb-4 last:mb-0 bg-white/5 rounded-lg p-4">
+                  <div className="text-sm text-white/90 space-y-1">
+                    <p className="font-medium text-white">Test Case {index + 1}:</p>
+                    <p>Input: {JSON.stringify(testCase.input)}</p>
+                    <p>Expected Output: {JSON.stringify(testCase.expectedOutput)}</p>
+                    {testCase.explanation && (
+                      <p className="text-blue-300">Explanation: {testCase.explanation}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Right side - Code Editor */}
+      <div className="w-[55%] flex flex-col bg-[#1e1e1e] rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="text-white/80">Solution</div>
+          <div className="flex items-center gap-3">
+            <button
+              className="px-4 py-1.5 text-sm font-medium text-white/90 hover:text-white bg-white/5 rounded-md hover:bg-white/10 transition-colors"
+              onClick={() => {
+                // Reset code to starting code
+                handleCodeChange(questions[currentQuestion].id, questions[currentQuestion].startingCode);
+              }}
+            >
+              Reset
+            </button>
+            <button
+              className="px-4 py-1.5 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600 transition-colors"
+              onClick={() => {
+                // Add run code functionality here
+                console.log("Running code...");
+              }}
+            >
+              Run Code
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <textarea
+            value={codeAnswers[questions[currentQuestion].id] || questions[currentQuestion].startingCode}
+            onChange={(e) => handleAnswerTyping(e, questions[currentQuestion].id)}
+            className="w-full h-full bg-transparent text-white font-mono text-sm leading-relaxed focus:outline-none resize-none p-6"
+            spellCheck="false"
+          />
+        </div>
+        <div className="p-4 border-t border-white/10">
+          <button
+            className="w-full bg-green-500 text-white rounded-md py-2.5 font-medium hover:bg-green-600 transition-colors"
+            onClick={handleCodeSubmit}
+          >
+            {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -1181,58 +1439,62 @@ function isValid(s) {
     );
   }
 
-  if (!examStarted) {
+  if (!examStarted || !typingTestComplete) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
         <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:60px_60px]" />
         <div className="relative min-h-screen px-6 py-12">
-          <motion.div
-            className="max-w-4xl mx-auto text-center"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <h1 className="text-4xl font-black text-white mb-6">Welcome to the Exam</h1>
-            {hasExternalDisplay ? (
-              <div className="bg-red-500/90 text-white p-4 rounded-xl mb-8">
-                ⚠️ External display detected. Please disconnect all external monitors before proceeding.
-              </div>
-            ) : (
-              <>
-                <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-4">Important Instructions</h2>
-                  <ul className="text-left text-blue-50/90 space-y-3">
-                    <li className="flex items-start gap-2">
-                      <span className="text-green-400">✓</span>
-                      <span>Ensure you are using a single display. External monitors are not allowed.</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-green-400">✓</span>
-                      <span>Keep the exam window in focus. Switching tabs or windows will be flagged.</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-green-400">✓</span>
-                      <span>The exam will automatically terminate after 8 warnings or if risk level becomes too high.</span>
-                    </li>
-                  </ul>
-                </div>
-            <p className="text-blue-50/90 mb-8">
-                  Please read all instructions carefully before starting the exam.
-            </p>
-              </>
-            )}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={startExam}
-              disabled={hasExternalDisplay}
-              className={`bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg transition-colors duration-300 ${
-                hasExternalDisplay ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-600'
-              }`}
+          {!typingTestComplete ? (
+            <TypingTest onComplete={handleTypingTestComplete} />
+          ) : (
+            <motion.div
+              className="max-w-4xl mx-auto text-center"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
             >
-              Start Exam
-            </motion.button>
-          </motion.div>
+              <h1 className="text-4xl font-black text-white mb-6">Welcome to the Exam</h1>
+              {hasExternalDisplay ? (
+                <div className="bg-red-500/90 text-white p-4 rounded-xl mb-8">
+                  ⚠️ External display detected. Please disconnect all external monitors before proceeding.
+                </div>
+              ) : (
+                <>
+                  <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 mb-8">
+                    <h2 className="text-2xl font-bold text-white mb-4">Important Instructions</h2>
+                    <ul className="text-left text-blue-50/90 space-y-3">
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-400">✓</span>
+                        <span>Ensure you are using a single display. External monitors are not allowed.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-400">✓</span>
+                        <span>Keep the exam window in focus. Switching tabs or windows will be flagged.</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <span className="text-green-400">✓</span>
+                        <span>The exam will automatically terminate after 8 warnings or if risk level becomes too high.</span>
+                      </li>
+                    </ul>
+                  </div>
+                <p className="text-blue-50/90 mb-8">
+                      Please read all instructions carefully before starting the exam.
+                </p>
+                </>
+              )}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={startExam}
+                disabled={hasExternalDisplay}
+                className={`bg-green-500 text-white rounded-xl py-4 px-8 font-medium text-lg transition-colors duration-300 ${
+                  hasExternalDisplay ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-600'
+                }`}
+              >
+                Start Exam
+              </motion.button>
+            </motion.div>
+          )}
         </div>
       </div>
     );
@@ -1312,117 +1574,14 @@ function isValid(s) {
               </div>
             </div>
           ) : questions[currentQuestion].type === "theory" ? (
-            <div className="max-w-4xl mx-auto p-6">
-              <h2 className="text-xl font-bold text-white mb-6">
-                {questions[currentQuestion].question}
-              </h2>
-              <div className="mt-6">
-                <textarea
-                  value={codeAnswers[questions[currentQuestion].id] || ""}
-                  onChange={(e) => handleCodeChange(questions[currentQuestion].id, e.target.value)}
-                  className="w-full h-64 bg-white/5 text-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono text-sm"
-                  placeholder="Type your answer here..."
-                />
-                <div className="mt-4 bg-white/5 rounded-xl p-4">
-                  <h3 className="text-lg font-semibold text-white mb-2">Answer Guidelines:</h3>
-                  <div className="text-blue-50/90 space-y-2">
-                    {questions[currentQuestion].expectedAnswer.split('\n').map((line, index) => (
-                      <p key={index}>{line}</p>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <button
-                    onClick={handleCodeSubmit}
-                    className="bg-green-500 text-white rounded-xl px-6 py-2 font-medium hover:bg-green-600 transition-colors"
-                  >
-                    {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
-                  </button>
-                </div>
-              </div>
-            </div>
+            renderTheoryQuestion()
           ) : questions[currentQuestion].type === "coding" ? (
-            <div className="flex h-full gap-6">
-              {/* Left side - Question Details */}
-              <div className="w-[45%] overflow-hidden rounded-xl bg-[#1e1e1e]/50">
-                <div className="h-full overflow-y-auto">
-                  <div className="p-6">
-                    <h2 className="text-xl font-bold text-white mb-6">
-                      Question {currentQuestion + 1}
-                    </h2>
-                    <div className="prose prose-invert max-w-none">
-                      <h3 className="text-lg font-semibold text-white mb-4">
-                        {questions[currentQuestion].question.split('\n')[0]}
-                      </h3>
-                      <div className="text-white/90 whitespace-pre-wrap font-mono text-sm leading-relaxed">
-                        {questions[currentQuestion].question.split('\n').slice(1).join('\n')}
-                      </div>
-                    </div>
-                    <div className="mt-8">
-                      <h4 className="text-white font-medium mb-4">Example Test Cases:</h4>
-                      {questions[currentQuestion].testCases.map((testCase, index) => (
-                        <div key={index} className="mb-4 last:mb-0 bg-white/5 rounded-lg p-4">
-                          <div className="text-sm text-white/90 space-y-1">
-                            <p className="font-medium text-white">Test Case {index + 1}:</p>
-                            <p>Input: {JSON.stringify(testCase.input)}</p>
-                            <p>Expected Output: {JSON.stringify(testCase.expectedOutput)}</p>
-                            {testCase.explanation && (
-                              <p className="text-blue-300">Explanation: {testCase.explanation}</p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right side - Code Editor */}
-              <div className="w-[55%] flex flex-col bg-[#1e1e1e] rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-                  <div className="text-white/80">Solution</div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      className="px-4 py-1.5 text-sm font-medium text-white/90 hover:text-white bg-white/5 rounded-md hover:bg-white/10 transition-colors"
-                      onClick={() => {
-                        // Reset code to starting code
-                        handleCodeChange(questions[currentQuestion].id, questions[currentQuestion].startingCode);
-                      }}
-                    >
-                      Reset
-                    </button>
-                    <button
-                      className="px-4 py-1.5 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600 transition-colors"
-                      onClick={() => {
-                        // Add run code functionality here
-                        console.log("Running code...");
-                      }}
-                    >
-                      Run Code
-                    </button>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  <textarea
-                    value={codeAnswers[questions[currentQuestion].id] || questions[currentQuestion].startingCode}
-                    onChange={(e) => handleCodeChange(questions[currentQuestion].id, e.target.value)}
-                    className="w-full h-full bg-transparent text-white font-mono text-sm leading-relaxed focus:outline-none resize-none p-6"
-                    spellCheck="false"
-                  />
-                </div>
-                <div className="p-4 border-t border-white/10">
-                  <button
-                    className="w-full bg-green-500 text-white rounded-md py-2.5 font-medium hover:bg-green-600 transition-colors"
-                    onClick={handleCodeSubmit}
-                  >
-                    {currentQuestion < questions.length - 1 ? "Next Question" : "Submit Exam"}
-                  </button>
-                </div>
-              </div>
-            </div>
+            renderCodingQuestion()
           ) : null}
         </div>
       </div>
     </div>
   );
-} 
+};
+
+export default ExamPage; 

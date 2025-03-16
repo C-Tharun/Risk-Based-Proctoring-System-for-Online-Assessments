@@ -349,6 +349,30 @@ export default function ExamResults() {
                 <p className="text-3xl font-bold text-green-400">Completed</p>
                 <p className="text-blue-50/70 mt-1">Exam finished</p>
               </div>
+              {examSession.typing_test_results && (
+                <div className="bg-white/5 rounded-xl p-6 col-span-2">
+                  <div className="space-y-4">
+                    {examSession.typing_test_results.variations && (
+                      <div className="space-y-3">
+                        <p className="text-lg font-medium text-blue-50/90">Question-wise WPM Analysis</p>
+                        <div className="space-y-2">
+                          {examSession.typing_test_results.variations.map((variation, index) => (
+                            <div key={index} className="bg-white/5 rounded-lg p-4">
+                              <div className="flex items-center justify-between">
+                                <span className="text-blue-50/90">Question {variation.questionId}</span>
+                                <span className="font-medium text-white">{variation.wpm} WPM</span>
+                              </div>
+                              <div className="mt-2 text-sm text-blue-50/70">
+                                Variation: {variation.variationPercentage}% from baseline
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* AI Detection Results */}
