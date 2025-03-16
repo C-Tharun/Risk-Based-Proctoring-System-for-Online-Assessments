@@ -339,6 +339,7 @@ function isValid(s) {
     if (!examStarted) return;
 
     let assessmentInterval;
+    let inactivityInterval;
 
     const handleMouseMove = (e) => {
       const movement = {
@@ -433,6 +434,21 @@ function isValid(s) {
       }
     };
 
+    // Check for inactivity every 30 seconds
+    inactivityInterval = setInterval(() => {
+      const now = Date.now();
+      const inactiveTime = now - lastActivity;
+      const twoMinutes = 2 * 60 * 1000; // 2 minutes in milliseconds
+
+      if (inactiveTime >= twoMinutes) {
+        updateWarningCount(
+          "⚠️ Warning: No activity detected for 2 minutes. Please remain active during the exam.",
+          "Inactivity detected"
+        );
+        assessBehavior("Inactivity detected");
+      }
+    }, 30000);
+
     // Periodic behavior assessment
     assessmentInterval = setInterval(async () => {
       await assessBehavior("periodic_check");
@@ -455,6 +471,7 @@ function isValid(s) {
       document.removeEventListener("mouseleave", handleMouseLeave);
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       clearInterval(assessmentInterval);
+      clearInterval(inactivityInterval);
       
       // Clear monitoring message timeout
       if (monitoringTimeoutRef.current) {
